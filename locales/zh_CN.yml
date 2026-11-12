@@ -110,6 +110,15 @@ common:
       0: "暂无消息"
       1: "1 条消息"
       n: "$1 条消息"
+    # 会话关键词搜索（issue #101）
+    searchPlaceholder: "搜索对话"
+    # $1 = 命中数
+    searchResults:
+      1: "1 个匹配会话"
+      n: "$1 个匹配会话"
+    searchNoResults: "没有匹配的会话"
+    searchFailed: "搜索失败"
+    searchClear: "清除搜索"
 
 # ─── 页面注入 UI（悬浮球、划词工具条） ───
 pageActions:

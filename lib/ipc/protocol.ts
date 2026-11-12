@@ -173,7 +173,34 @@ export type ClientMessage =
   | { type: 'memory_organize' }
   /** 查当前是否正在整理（供设置页重新挂载时恢复「整理中」指示——切 tab 再切回不丢状态）。
    *  后台仅向发起端口回一条 `memory_organize_state`（不带 outcome，不触发 toast）。 */
-  | { type: 'memory_organize_query' };
+  | { type: 'memory_organize_query' }
+  /**
+   * 关键词搜索（issue #101）：跨会话搜标题 + 消息正文，全在设备端（client-side，
+   * 不走 provider）。客户端生成 requestId，后台按它原样带回，多个窗口 / 快速
+   * 连敲并发时据此配对；响应是 `session_search_result`。
+   * `since` / `until`（可选）按会话 updatedAt 做日期过滤。
+   */
+  | ({ type: 'session_search'; query: string; requestId: string } & SessionSearchScope);
+
+/** 搜索作用域：缺省 = 所有会话；`since` / `until`（毫秒）按会话 updatedAt 过滤。 */
+export interface SessionSearchScope {
+  since?: number;
+  until?: number;
+}
+
+/** `session_search` 命中条目（issue #101）：会话 + 命中位置 + 摘录。
+ * 摘录是正文第一个命中处 ±60 字（由 lib/agent/session-search 切出）。 */
+export interface SessionSearchHit {
+  sessionId: string;
+  title: string;
+  updatedAt: number;
+  matchedIn: Array<'title' | 'content'>;
+  snippet?: string;
+  /** snippet 里命中词起点的下标（小写化前），UI 高亮用。 */
+  snippetIndex?: number;
+  /** 命中词的字符长度（= query 去空格后的长度），与 snippetIndex 配合定位高亮区间。 */
+  matchLength?: number;
+}
 
 /**
  * `ClientMessage['type']` 的值级清单，供运行期穷尽性检查用（类型在编译后被擦除，
@@ -208,6 +235,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'mcp_read_resource',
   'memory_organize',
   'memory_organize_query',
+  'session_search',
 ] as const satisfies readonly ClientMessage['type'][];
 
 type _ExpectNever<T extends never> = T;
@@ -380,4 +408,22 @@ export type ServerMessage =
       running: boolean;
       outcome?: 'ok' | 'empty' | 'conflict' | 'rejected' | 'failed' | 'no-model';
       error?: string;
+    }
+  /**
+   * `session_search` 的响应（issue #101）。requestId 与请求原样对应；`hits` 已按
+   * 相关性排好序（标题命中在前，同权重按 updatedAt 倒序），每条带可选摘录。
+   * 出错走通用 `error`（带本请求的 sessionId=null），不回专用错误帧。
+   */
+  | {
+      type: 'session_search_result';
+      requestId: string;
+      query: string;
+      hits: SessionSearchHit[];
+    }
+  /** `session_search` 失败帧（issue #101）：同请求的 requestId 原样带回，
+   *  UI 侧据此清掉对那个 requestId 的在途等待并显示错误。 */
+  | {
+      type: 'session_search_error';
+      requestId: string;
+      error: string;
     };

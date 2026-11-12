@@ -115,6 +115,15 @@ common:
       0: "No messages"
       1: "1 message"
       n: "$1 messages"
+    # Keyword search across chats (issue #101)
+    searchPlaceholder: "Search chats"
+    # $1 = number of search hits
+    searchResults:
+      1: "1 matching chat"
+      n: "$1 matching chats"
+    searchNoResults: "No chats match"
+    searchFailed: "Search failed"
+    searchClear: "Clear search"
 
 # ─── In-page injected UI (floating ball, selection toolbar) ───
 pageActions:

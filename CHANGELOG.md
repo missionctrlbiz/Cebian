@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### 新增 / Added
+
+- 历史面板加了关键词搜索：在列表上方输入任意词，会不区分大小写地搜所有会话的标题与消息正文（全程本地、不上网），命中项带上下文摘录、命中的词高亮，点一下就打开那个会话；不用时搜索框收起，不影响原来的分组列表 ([#101](https://github.com/maotoumao/Cebian/issues/101))
+
+- The history panel now has keyword search: type any term above the list and it searches all conversation titles and message contents case-insensitively (entirely on-device, nothing leaves the browser). Hits show a context excerpt with the match highlighted, and clicking one opens that chat; the box stays out of the way when unused ([#101](https://github.com/maotoumao/Cebian/issues/101))
+
 ## 1.8.3 - 2026-11-09
 
 ### 新增 / Added

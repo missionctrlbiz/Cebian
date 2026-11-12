@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, ArrowLeft, MessageSquare, Pin, PinOff, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, MessageSquare, Pin, PinOff, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Accordion,
@@ -8,9 +9,10 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { type SessionMeta } from '@/lib/ipc/protocol';
+import { type SessionMeta, type SessionSearchHit } from '@/lib/ipc/protocol';
 import type { SessionPlacement } from '@/lib/persistence/db';
 import { useSessionList } from '@/hooks/useSessionList';
+import { useSessionSearch } from '@/hooks/useSessionSearch';
 import { COLLAPSED_BUCKETS, groupSessions } from '@/components/layout/history-grouping';
 import { rangeBetween, visibleOrder } from '@/components/layout/history-selection';
 import { HistorySessionRow } from '@/components/layout/HistorySessionRow';
@@ -23,6 +25,25 @@ interface HistoryPanelProps {
   onClose: () => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
+}
+
+/** 搜索摘录里把命中词高亮。区间 = [snippetIndex, snippetIndex + matchLength)。 */
+function renderSearchSnippet(hit: SessionSearchHit): React.ReactNode {
+  const snippet = hit.snippet;
+  if (!snippet || hit.snippetIndex === undefined || hit.matchLength === undefined) {
+    return snippet ?? null;
+  }
+  const start = hit.snippetIndex;
+  const end = start + hit.matchLength;
+  return (
+    <>
+      {snippet.slice(0, start)}
+      <mark className="bg-primary/30 text-inherit rounded-sm px-0.5">
+        {snippet.slice(start, end)}
+      </mark>
+      {snippet.slice(end)}
+    </>
+  );
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -43,6 +64,10 @@ export function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }
   // 列表 + 删除 + 置顶/归档都走 useSessionList 持有的那一条长连接端口。列表带着后台才
   // 知道的 `isRunning`（DB 不知道哪些 agent 正在流式），所以不能直接读库。
   const { sessions, loading, remove, setPlacement, rename } = useSessionList(open);
+
+  // 关键词搜索（issue #101）：输入框挂在列表上方，查询非空时列表换成命中结果；
+  // 搜索跑在后台（transcript 本体在 Dexie），前端只拿命中 + 摘录。
+  const search = useSessionSearch(open);
 
   // 分组边界只随列表变化重算（`Date.now()` 不进依赖）；每行的相对时间则在每次渲染时
   // 现算，免得面板长时间开着而时间文案冻在最后一次列表更新的时刻。
@@ -259,55 +284,112 @@ export function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }
         )}
       </div>
 
+      {/* 搜索框（issue #101）：只在非选择模式显示；有查询时列表换成命中结果。 */}
+      {!selectionMode && (
+        <div className="px-5 py-2 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              value={search.query}
+              onChange={(e) => search.onQueryChange(e.target.value)}
+              placeholder={t('common.session.searchPlaceholder')}
+              aria-label={t('common.session.searchPlaceholder')}
+              className="pl-8 h-8 text-sm"
+            />
+            {search.query && (
+              <button
+                type="button"
+                onClick={search.clear}
+                aria-label={t('common.session.searchClear')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Body */}
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-5 py-3">
-          {loading && (
-            <div className="text-center text-sm text-muted-foreground py-12">
-              {t('common.loading')}
-            </div>
-          )}
+          {search.active ? (
+            <>
+              <p className="text-xs text-muted-foreground mb-2">
+                {search.error
+                  ? t('common.session.searchFailed')
+                  : search.hits.length === 0
+                    ? t('common.session.searchNoResults')
+                    : t('common.session.searchResults', search.hits.length)}
+              </p>
+              <div className="flex flex-col gap-1">
+                {search.hits.map((hit) => (
+                  <button
+                    key={hit.sessionId}
+                    type="button"
+                    onClick={() => { onSelectSession(hit.sessionId); }}
+                    className="w-full text-left rounded-lg border border-border bg-card hover:bg-accent px-3 py-2 cursor-pointer"
+                  >
+                    <p className="text-sm font-medium truncate">{hit.title || t('vfs.untitledSession')}</p>
+                    {hit.snippet && (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                        {renderSearchSnippet(hit)}
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              {loading && (
+                <div className="text-center text-sm text-muted-foreground py-12">
+                  {t('common.loading')}
+                </div>
+              )}
 
-          {!loading && sessions.length === 0 && (
-            <div className="flex flex-col items-center gap-2 py-16 text-center">
-              <MessageSquare className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{t('common.empty.history')}</p>
-            </div>
-          )}
+              {!loading && sessions.length === 0 && (
+                <div className="flex flex-col items-center gap-2 py-16 text-center">
+                  <MessageSquare className="size-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">{t('common.empty.history')}</p>
+                </div>
+              )}
 
-          {!loading && groups.length > 0 && (
-            <Accordion type="multiple" value={openBuckets} onValueChange={setOpenBuckets}>
-              {groups.map((group) => (
-                <AccordionItem key={group.bucket} value={group.bucket} className="border-b-0">
-                  <AccordionTrigger className="py-2 text-xs text-muted-foreground hover:no-underline">
-                    {t(`common.historyGroup.${group.bucket}`)}
-                  </AccordionTrigger>
-                  <AccordionContent className="pb-1">
-                    <div className="flex flex-col gap-1">
-                      {group.sessions.map((session) => (
-                        <HistorySessionRow
-                          key={session.id}
-                          session={session}
-                          relativeTime={formatRelativeTime(session.updatedAt)}
-                          forkSourceTitle={
-                            session.parentSessionId ? titleById.get(session.parentSessionId) : undefined
-                          }
-                          selectionMode={selectionMode}
-                          selected={selectedIds?.has(session.id) ?? false}
-                          onOpen={onSelectSession}
-                          onToggleSelect={toggleSelect}
-                          onEnterSelection={enterSelection}
-                          onTogglePin={(s) => togglePlacement([s], 'pinned')}
-                          onToggleArchive={(s) => togglePlacement([s], 'archived')}
-                          onDelete={(id) => deleteSessions([id])}
-                          onRename={renameSession}
-                        />
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
+              {!loading && groups.length > 0 && (
+                <Accordion type="multiple" value={openBuckets} onValueChange={setOpenBuckets}>
+                  {groups.map((group) => (
+                    <AccordionItem key={group.bucket} value={group.bucket} className="border-b-0">
+                      <AccordionTrigger className="py-2 text-xs text-muted-foreground hover:no-underline">
+                        {t(`common.historyGroup.${group.bucket}`)}
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-1">
+                        <div className="flex flex-col gap-1">
+                          {group.sessions.map((session) => (
+                            <HistorySessionRow
+                              key={session.id}
+                              session={session}
+                              relativeTime={formatRelativeTime(session.updatedAt)}
+                              forkSourceTitle={
+                                session.parentSessionId ? titleById.get(session.parentSessionId) : undefined
+                              }
+                              selectionMode={selectionMode}
+                              selected={selectedIds?.has(session.id) ?? false}
+                              onOpen={onSelectSession}
+                              onToggleSelect={toggleSelect}
+                              onEnterSelection={enterSelection}
+                              onTogglePin={(s) => togglePlacement([s], 'pinned')}
+                              onToggleArchive={(s) => togglePlacement([s], 'archived')}
+                              onDelete={(id) => deleteSessions([id])}
+                              onRename={renameSession}
+                            />
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              )}
+            </>
           )}
         </div>
       </ScrollArea>

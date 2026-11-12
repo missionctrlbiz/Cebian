@@ -7,6 +7,7 @@
 
 import { sessionManager } from './session-manager';
 import { sessionStore, type LoadedSession } from './session-store';
+import { searchAllSessions } from './session-search';
 import type { SessionSnapshot } from '@/lib/ipc/protocol';
 import { setViewing, stopViewing, hasViewer } from './viewers';
 import { flushStreamOps } from './stream-broadcast';
@@ -481,6 +482,30 @@ const chatClientHandlers: ClientHandlerMap = {
       return;
     }
     broadcastAll({ type: 'session_renamed', sessionId, title });
+  },
+
+  /** 关键词搜索（issue #101）。请求 / 响应都带 requestId（客户端生成），多窗口
+   *  或快速连敲时按它配对。全在设备端跑，出错走专用错误回复——不借用对话域
+   *  的 `error` 帧（那会被聊天视图当成本轮对话失败）。 */
+  async session_search(port, msg) {
+    try {
+      const hits = await searchAllSessions(
+        typeof msg.query === 'string' ? msg.query : '',
+        { since: msg.since, until: msg.until },
+      );
+      post(port, {
+        type: 'session_search_result',
+        requestId: msg.requestId,
+        query: msg.query,
+        hits,
+      });
+    } catch (err) {
+      post(port, {
+        type: 'session_search_error',
+        requestId: msg.requestId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   },
 };
 

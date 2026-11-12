@@ -27,6 +27,7 @@ import { t } from '@/lib/i18n';
 import { recorderChannel } from '@/lib/recorder/sidepanel-channel';
 import { mcpAppResourceChannel } from '@/lib/mcp/sidepanel-channel';
 import { sessionListChannel } from '@/lib/agent/session-list-channel';
+import { sessionSearchChannel } from '@/lib/agent/session-search-channel';
 import { myInstanceId } from '@/lib/ipc/instance-id';
 
 // ─── State ───
@@ -360,6 +361,14 @@ export function useBackgroundAgent(callbacks: AgentPortCallbacks) {
           sessionListChannel.publishError(msg.error);
           break;
 
+        case 'session_search_result':
+          sessionSearchChannel.publishResult(msg.requestId, msg.hits, msg.query);
+          break;
+
+        case 'session_search_error':
+          sessionSearchChannel.publishError(msg.requestId, msg.error);
+          break;
+
         case 'error':
           if (msg.sessionId && !isCurrentSession(msg.sessionId)) break;
           console.error('[AgentPort] Error:', msg.error);
@@ -465,6 +474,7 @@ export function useBackgroundAgent(callbacks: AgentPortCallbacks) {
           recorderChannel.setPort(null);
           mcpAppResourceChannel.setPort(null);
           sessionListChannel.setPort(null);
+          sessionSearchChannel.setPort(null);
           // 在途分叉的回包随端口一起丢了，别让标记把后续分叉永久卡死。
           forkPendingRef.current = false;
           settleTakeWaiters();
@@ -491,6 +501,8 @@ export function useBackgroundAgent(callbacks: AgentPortCallbacks) {
         // 必须放在 hello 之后——它是三个 channel 里唯一会在 setPort 时同步发消息的
         // （断线重连且面板正开着时会补拉一次列表），先挂上就会抢在 hello 前面。
         sessionListChannel.setPort(port);
+        // 搜索通道：request/response，setPort 不发任何消息，随时可挂。
+        sessionSearchChannel.setPort(port);
       } catch {
         handleDisconnect();
       }
