@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendQuoteToDraft } from '@/components/chat/quote-format';
+import { appendQuoteToDraft, appendQuotePiecesToDraft } from '@/components/chat/quote-format';
 
 describe('appendQuoteToDraft', () => {
   it('quotes each line into an empty draft and leaves a blank line to type below', () => {
@@ -39,5 +39,26 @@ describe('appendQuoteToDraft', () => {
 
   it('returns the draft unchanged when the selection is blank', () => {
     expect(appendQuoteToDraft('keep', ' \r\n\t ')).toBe('keep');
+  });
+});
+
+describe('appendQuotePiecesToDraft', () => {
+  it('labels each message piece with its own attribution', () => {
+    expect(appendQuotePiecesToDraft('', [
+      { text: 'question', attribution: 'You:' },
+      { text: 'answer', attribution: 'Assistant:' },
+    ])).toBe('> **You:**\n> question\n\n> **Assistant:**\n> answer\n\n');
+  });
+
+  it('merges adjacent pieces from the same source and skips blank ones', () => {
+    expect(appendQuotePiecesToDraft('Draft', [
+      { text: 'part one', attribution: 'Assistant:' },
+      { text: '  \n', attribution: 'You:' },
+      { text: 'part two\r\n', attribution: 'Assistant:' },
+    ])).toBe('Draft\n\n> **Assistant:**\n> part one\n>\n> part two\n\n');
+  });
+
+  it('returns the draft unchanged when every piece is blank', () => {
+    expect(appendQuotePiecesToDraft('keep', [{ text: ' ' }])).toBe('keep');
   });
 });

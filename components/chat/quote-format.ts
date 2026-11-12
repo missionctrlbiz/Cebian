@@ -33,4 +33,29 @@ function appendQuoteToDraft(draft: string, text: string, attribution?: string): 
   return head ? `${head}\n\n${block}` : block;
 }
 
-export { appendQuoteToDraft };
+/** 选区落在某一段消息正文内的那一截文本，及其出处行（已本地化，如「Assistant:」）。 */
+interface QuotePiece {
+  text: string;
+  attribution?: string;
+}
+
+/**
+ * 把按消息切好的多截选中文本依次追加成引注块：相邻且出处相同的几截（如同一轮里
+ * 被工具卡片隔开的几段回复）先用空行合并成一块，避免重复的出处行；空白的截被跳过。
+ */
+function appendQuotePiecesToDraft(draft: string, pieces: readonly QuotePiece[]): string {
+  const merged: QuotePiece[] = [];
+  for (const piece of pieces) {
+    if (!piece.text.trim()) continue;
+    const prev = merged[merged.length - 1];
+    if (prev && prev.attribution === piece.attribution) {
+      prev.text = `${prev.text}\n\n${piece.text}`;
+    } else {
+      merged.push({ ...piece });
+    }
+  }
+  return merged.reduce((acc, piece) => appendQuoteToDraft(acc, piece.text, piece.attribution), draft);
+}
+
+export type { QuotePiece };
+export { appendQuoteToDraft, appendQuotePiecesToDraft };

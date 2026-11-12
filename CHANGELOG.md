@@ -20,9 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### 新增 / Added
 
-- 在对话里选中消息正文时会浮出「引用」按钮，点一下即把选中文字以 markdown 引注块追加进输入框，光标停在块下方方便接着提问；选区只在一条消息内时，块首会标出是「你」还是「助手」说的。已有草稿与附件都会保留 ([#103](https://github.com/maotoumao/Cebian/issues/103))
+- 在对话里选中消息正文时会浮出「引用」按钮，点一下即把选中文字以 markdown 引注块追加进输入框，光标停在块下方方便接着提问；每段引文都会标出是「你」还是「助手」说的，跨多条消息选中时只取消息正文、不带界面文字。已有草稿与附件都会保留 ([#103](https://github.com/maotoumao/Cebian/issues/103))
 
-- Selecting message text in a conversation shows a floating "Quote" button that appends the selection to the input box as a markdown quote block, leaving the caret below it so you can ask about that passage; when the selection comes from a single message, the quote is labeled with who said it ("You" or "Assistant"). Existing draft text and attachments are kept ([#103](https://github.com/maotoumao/Cebian/issues/103))
+- Selecting message text in a conversation shows a floating "Quote" button that appends the selection to the input box as a markdown quote block, leaving the caret below it so you can ask about that passage; each quoted part is labeled with who said it ("You" or "Assistant"), and selections across several messages pick up only message text, not surrounding UI. Existing draft text and attachments are kept ([#103](https://github.com/maotoumao/Cebian/issues/103))
 
 ## 1.8.3 - 2026-11-09
 
