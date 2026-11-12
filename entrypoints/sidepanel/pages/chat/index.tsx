@@ -114,10 +114,11 @@ export function ChatPage({ onOpenSettings, onTitleChange }: { onOpenSettings?: (
 
   // 句柄：欢迎页示例卡片通过它把 prompt 填入输入框；拖放区通过它交付放下的文件。
   const inputRef = useRef<ChatInputHandle>(null);
-  // 划词引用工具条的选区根节点（ScrollArea 内容区）与定位 wrapper（外层不随
-  // 滚动位移的容器），都由 JSX 的 callback ref 填充。
-  const quoteRootRef = useRef<HTMLDivElement | null>(null);
-  const quoteWrapperRef = useRef<HTMLDivElement | null>(null);
+  // 划词引用工具条（issue #103）的选区根节点（ScrollArea 内容区）与定位 wrapper（外层
+  // 不随滚动位移的容器）。用 state 作 callback ref：节点挂上后触发重渲染，工具条的监听
+  // 才能在首屏就挂好，而不是等到下一次无关的重渲染。
+  const [quoteRoot, setQuoteRoot] = useState<HTMLDivElement | null>(null);
+  const [quoteWrapper, setQuoteWrapper] = useState<HTMLDivElement | null>(null);
 
   // 整个聊天页（消息区 + 输入框）都是文件拖放区。发送进行中不接收：那一刻的附件马上要被清空。
   const [composerDispatching, setComposerDispatching] = useState(false);
@@ -300,9 +301,9 @@ export function ChatPage({ onOpenSettings, onTitleChange }: { onOpenSettings?: (
 
   return (
     <div className="flex-1 min-h-0 relative flex flex-col" {...fileDrop.zoneProps}>
-      <div ref={quoteWrapperRef} className="flex-1 min-h-0 relative flex flex-col">
+      <div ref={setQuoteWrapper} className="flex-1 min-h-0 relative flex flex-col">
         <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
-          <div ref={quoteRootRef} className="flex flex-col gap-4 p-5">
+          <div ref={setQuoteRoot} className="flex flex-col gap-4 p-5">
             {sessionLoading && (
               <div className="text-center text-sm text-muted-foreground py-12">
                 {t('chat.session.loading')}
@@ -673,10 +674,12 @@ export function ChatPage({ onOpenSettings, onTitleChange }: { onOpenSettings?: (
           </Tooltip>
         )}
 
+        {/* key per session: switching chats remounts the toolbar so a stale anchor never survives */}
         <QuoteToolbar
-          root={quoteRootRef.current}
-          wrapper={quoteWrapperRef.current}
-          onQuote={(quote) => inputRef.current?.appendQuote(quote)}
+          key={isNewChat ? 'new' : routeSessionId}
+          root={quoteRoot}
+          wrapper={quoteWrapper}
+          onQuote={(text, attribution) => inputRef.current?.appendQuote(text, attribution)}
         />
       </div>
 

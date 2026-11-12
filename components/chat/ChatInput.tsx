@@ -36,6 +36,7 @@ import { useMobileEmulation } from '@/hooks/useMobileEmulation';
 import { useChatAppearance } from '@/hooks/useChatAppearance';
 import { downloadFile, formatCompactCount, isApplePlatform } from '@/lib/utils';
 import { recordingMetaText, recordingTitle } from '@/components/chat/recording-meta';
+import { appendQuoteToDraft } from '@/components/chat/quote-format';
 import { t } from '@/lib/i18n';
 import type { PromptDispatchResult, QueueTakeResult } from '@/hooks/useBackgroundAgent';
 
@@ -84,9 +85,10 @@ interface ChatInputProps {
 export interface ChatInputHandle {
   fill: (text: string) => void;
   /** 划词引用（issue #103）：把选中的文本以 markdown 引注块形式追加进输入框，
-   *  已有内容时换行隔开，不覆盖。与 `fill` 的整框替换相对——引用是往草稿里
-   *  添上下文，不是重起草。 */
-  appendQuote: (quote: string) => void;
+   *  已有内容时空一行隔开，不覆盖草稿和附件。`attribution` 是可选的出处行
+   *  （如「Assistant:」），加粗放在块首。与 `fill` 的整框替换相对——引用是往
+   *  草稿里添上下文，不是重起草。 */
+  appendQuote: (text: string, attribution?: string) => void;
   /** 聊天页拖放区放下的文件；`folders` 是被排除的文件夹名，只用来提示。 */
   addFiles: (files: readonly File[], folders: readonly string[]) => void;
 }
@@ -686,13 +688,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     focusCaretAtEnd();
   }, [focusCaretAtEnd]);
 
-  // 划词引用追加（issue #103）：引注块逐行 `> ` 前缀，已有内容时换行隔开。
-  const appendQuote = useCallback((quote: string) => {
-    const block = quote
-      .split('\n')
-      .map((line) => `> ${line}`)
-      .join('\n');
-    setValue((prev) => (prev.trim() ? `${prev.trimEnd()}\n\n${block}` : block));
+  // 划词引用追加（issue #103）：拼装规则见 appendQuoteToDraft；只改文本，附件等状态不动。
+  // 拼好的草稿以空行结尾，光标落在末尾即引注块下方。
+  const appendQuote = useCallback((text: string, attribution?: string) => {
+    setValue((prev) => appendQuoteToDraft(prev, text, attribution));
     setShowSlash(false);
     setHistoryIndex(null);
     focusCaretAtEnd();

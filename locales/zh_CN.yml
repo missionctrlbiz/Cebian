@@ -633,9 +633,6 @@ chat:
     elementPickNavigated: "页面已跳转，元素选取已取消"
     imageAlreadyAdded: "该图片已添加"
     screenshotFailed: "截图失败"
-    # 对话内划词引用（issue #103）
-    quote: "引用到对话"
-    quoteDismiss: "关闭"
     # $1 = 附件上限个数
     maxAttachments: "最多添加 $1 个附件"
     # $1 = 未添加的文件数
@@ -802,6 +799,12 @@ chat:
     nextBranch: "下一个版本"
     # 收尾 assistant 回复上分叉按钮的 tooltip / aria-label（issue #60）
     fork: "分叉"
+    # 在对话里选中文字时浮出的引用工具条（issue #103）
+    quote: "引用"
+    quoteDismiss: "关闭"
+    # 引用出自单条消息时，引注块开头的出处行（加粗显示）
+    quoteFromUser: "你："
+    quoteFromAssistant: "助手："
   contextUsage:
     # 输入框旁进度环的无障碍名称 / 悬停提示。$1 = 已用百分比
     label: "上下文已用 $1%"

@@ -175,7 +175,8 @@ export function UserMessageBubble({
   return (
     <div className="self-end max-w-[95%] group/user">
       {hasBubble && (
-        <div className="bg-card border border-border px-4 py-3 rounded-2xl chat-text-body chat-font leading-relaxed w-fit ml-auto whitespace-pre-wrap break-all">
+        // data-quote-source：标记可被划词引用（issue #103）的消息正文及其角色，见 QuoteToolbar
+        <div data-quote-source="user" className="bg-card border border-border px-4 py-3 rounded-2xl chat-text-body chat-font leading-relaxed w-fit ml-auto whitespace-pre-wrap break-all">
           {bubble}
         </div>
       )}
@@ -439,8 +440,9 @@ export function AgentMessage({
 export function AgentTextBlock({ content, streaming }: { content: string; streaming?: boolean }) {
   // data-speech-content：标记「可朗读的回复正文」，供 extractSpeakText 只读此子树，
   // 从而跳过 thinking / 工具卡片 / 错误提示等同处一个容器下的其它块。
+  // data-quote-source：同理只把回复正文标为可划词引用（issue #103），见 QuoteToolbar。
   return (
-    <div data-speech-content className="chat-text-body chat-font">
+    <div data-speech-content data-quote-source="assistant" className="chat-text-body chat-font">
       <MarkdownRenderer content={content} normalizeMath streaming={streaming} />
     </div>
   );
