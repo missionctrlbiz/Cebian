@@ -3,11 +3,12 @@
 // - `extractSearchableMessages`：把一条会话 main 分支投影出的 messages 抽成「逐条可搜
 //   文本」，只取 user / assistant 正文（toolResult 多是整页 DOM / 文件转储，噪声大、
 //   缓存体积也大，故不入索引）。每条带它在投影数组里的下标，供 UI 跳到那条消息。
-// - `searchSessions`：对一组「会话元数据 + 逐条文本」做不区分大小写的子串匹配，
+// - `matchSessions`：对一组「会话元数据 + 逐条文本」做不区分大小写的子串匹配，
 //   每条会话出一行命中：标题命中权重高，同权重按 updatedAt 新者优先。
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { extractUserText, getAssistantText } from '@/lib/agent/message-helpers';
+import type { SessionSearchHit } from '@/lib/ipc/protocol';
 
 /** 一条可搜索消息：空白已归一的正文 + 它在投影 messages 数组里的下标。 */
 interface SearchableMessage {
@@ -21,22 +22,6 @@ interface SearchableSession {
   updatedAt: number;
   /** 按消息序排列的可搜文本（调用方用 extractSearchableMessages 构建）。 */
   messages: readonly SearchableMessage[];
-}
-
-interface SearchHit {
-  sessionId: string;
-  title: string;
-  updatedAt: number;
-  /** 命中的位置集合：'title' / 'content'。 */
-  matchedIn: Array<'title' | 'content'>;
-  /** 正文第一处命中所在消息在投影 messages 数组里的下标（UI 据此滚动定位）。 */
-  messageIndex?: number;
-  /** 正文第一处命中附近的摘录（空白已归一，截断处带省略号）。 */
-  snippet?: string;
-  /** 命中词在 snippet 里的起点（UTF-16 下标，直接可用于 slice）。 */
-  snippetIndex?: number;
-  /** 命中词在 snippet 里的长度；与 snippetIndex 一起划出高亮区间。 */
-  matchLength?: number;
 }
 
 const SNIPPET_RADIUS = 60;
@@ -126,14 +111,14 @@ function extractSearchableMessages(messages: readonly AgentMessage[]): Searchabl
  * - 标题命中排前（标题权重 > 正文），同权重按 updatedAt 倒序。
  * - 每条会话只出一行：正文取按消息序的第一处命中做摘录与定位。
  */
-function searchSessions(sessions: readonly SearchableSession[], query: string): SearchHit[] {
+function matchSessions(sessions: readonly SearchableSession[], query: string): SessionSearchHit[] {
   const q = normalizeWhitespace(query).toLowerCase();
   if (!q) return [];
 
-  const scored: Array<{ hit: SearchHit; titleMatch: boolean }> = [];
+  const scored: Array<{ hit: SessionSearchHit; titleMatch: boolean }> = [];
   for (const s of sessions) {
     const titleMatch = findFolded(s.title, q) !== null;
-    let content: SearchHit | null = null;
+    let content: SessionSearchHit | null = null;
     for (const m of s.messages) {
       const range = findFolded(m.text, q);
       if (!range) continue;
@@ -151,10 +136,10 @@ function searchSessions(sessions: readonly SearchableSession[], query: string): 
       break;
     }
     if (!titleMatch && !content) continue;
-    const matchedIn: SearchHit['matchedIn'] = [];
+    const matchedIn: SessionSearchHit['matchedIn'] = [];
     if (titleMatch) matchedIn.push('title');
     if (content) matchedIn.push('content');
-    const hit: SearchHit = content
+    const hit: SessionSearchHit = content
       ? { ...content, matchedIn }
       : { sessionId: s.id, title: s.title, updatedAt: s.updatedAt, matchedIn };
     scored.push({ hit, titleMatch });
@@ -169,5 +154,5 @@ function searchSessions(sessions: readonly SearchableSession[], query: string): 
 
 // ─── Public API ───
 
-export { extractSearchableMessages, searchSessions };
-export type { SearchableMessage, SearchableSession, SearchHit };
+export { extractSearchableMessages, matchSessions };
+export type { SearchableMessage, SearchableSession };

@@ -2,25 +2,25 @@ import { describe, it, expect } from 'vitest';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import {
   extractSearchableMessages,
-  searchSessions,
+  matchSessions,
   type SearchableSession,
-  type SearchHit,
 } from '@/lib/agent/session-search';
+import type { SessionSearchHit } from '@/lib/ipc/protocol';
 
 function sess(id: string, title: string, texts: string[], updatedAt = 0): SearchableSession {
   return { id, title, updatedAt, messages: texts.map((text, index) => ({ index, text })) };
 }
 
 /** 高亮区间在 snippet 上切出来的原文。 */
-function highlighted(h: SearchHit): string {
+function highlighted(h: SessionSearchHit): string {
   return h.snippet!.slice(h.snippetIndex!, h.snippetIndex! + h.matchLength!);
 }
 
-describe('searchSessions', () => {
+describe('matchSessions', () => {
   it('空 query 返回空列表', () => {
     const data = [sess('a', 'Chat A', ['hello world'])];
-    expect(searchSessions(data, '')).toEqual([]);
-    expect(searchSessions(data, '   ')).toEqual([]);
+    expect(matchSessions(data, '')).toEqual([]);
+    expect(matchSessions(data, '   ')).toEqual([]);
   });
 
   it('不区分大小写匹配标题与正文', () => {
@@ -28,7 +28,7 @@ describe('searchSessions', () => {
       sess('a', 'Tool Debug', ['how to fix the error']),
       sess('b', 'other', ['the ERROR is here']),
     ];
-    const ids = searchSessions(data, 'error').map((h) => h.sessionId).sort();
+    const ids = matchSessions(data, 'error').map((h) => h.sessionId).sort();
     expect(ids).toEqual(['a', 'b']);
   });
 
@@ -37,7 +37,7 @@ describe('searchSessions', () => {
       sess('old-content', 'unrelated', ['zebra mention'], 999),
       sess('new-title', 'zebra chat', ['nothing'], 1),
     ];
-    const hits = searchSessions(data, 'zebra');
+    const hits = matchSessions(data, 'zebra');
     expect(hits[0].sessionId).toBe('new-title');
     expect(hits[0].matchedIn).toEqual(['title']);
     expect(hits[1].sessionId).toBe('old-content');
@@ -49,7 +49,7 @@ describe('searchSessions', () => {
       sess('b', 'y', ['match'], 300),
       sess('c', 'z', ['match'], 200),
     ];
-    expect(searchSessions(data, 'match').map((h) => h.sessionId)).toEqual(['b', 'c', 'a']);
+    expect(matchSessions(data, 'match').map((h) => h.sessionId)).toEqual(['b', 'c', 'a']);
   });
 
   it('一条会话只出一行，取按消息序第一处命中，并给出其 messageIndex', () => {
@@ -63,7 +63,7 @@ describe('searchSessions', () => {
         { index: 5, text: 'needle again' },
       ],
     }];
-    const hits = searchSessions(data, 'needle');
+    const hits = matchSessions(data, 'needle');
     expect(hits).toHaveLength(1);
     expect(hits[0].messageIndex).toBe(3);
     expect(hits[0].matchedIn).toEqual(['content']);
@@ -71,17 +71,17 @@ describe('searchSessions', () => {
   });
 
   it('标题与正文都命中时两者都记，仍带 messageIndex', () => {
-    const hits = searchSessions([sess('a', 'needle title', ['a needle'])], 'needle');
+    const hits = matchSessions([sess('a', 'needle title', ['a needle'])], 'needle');
     expect(hits[0].matchedIn).toEqual(['title', 'content']);
     expect(hits[0].messageIndex).toBe(0);
   });
 
   it('没有命中的会话不出现', () => {
-    expect(searchSessions([sess('a', 'one', ['aaa']), sess('b', 'two', ['bbb'])], 'zzz')).toEqual([]);
+    expect(matchSessions([sess('a', 'one', ['aaa']), sess('b', 'two', ['bbb'])], 'zzz')).toEqual([]);
   });
 
   it('只有标题命中时没有摘录与 messageIndex', () => {
-    const hits = searchSessions([sess('a', 'needle haystack', ['nothing'])], 'needle');
+    const hits = matchSessions([sess('a', 'needle haystack', ['nothing'])], 'needle');
     expect(hits).toHaveLength(1);
     expect(hits[0].matchedIn).toEqual(['title']);
     expect(hits[0].snippet).toBeUndefined();
@@ -90,7 +90,7 @@ describe('searchSessions', () => {
 
   it('长文本截出带省略号的摘录，高亮区间仍准确罩住命中词', () => {
     const text = `${'a'.repeat(200)} Target ${'b'.repeat(200)}`;
-    const [hit] = searchSessions([sess('a', 't', [text])], 'target');
+    const [hit] = matchSessions([sess('a', 't', [text])], 'target');
     expect(hit.snippet!.startsWith('…')).toBe(true);
     expect(hit.snippet!.endsWith('…')).toBe(true);
     expect(highlighted(hit)).toBe('Target');
@@ -98,13 +98,13 @@ describe('searchSessions', () => {
   });
 
   it('query 里的多余空白按单个空格匹配', () => {
-    const [hit] = searchSessions([sess('a', 't', ['open the  door now'.replace(/\s+/g, ' ')])], '  the   door ');
+    const [hit] = matchSessions([sess('a', 't', ['open the  door now'.replace(/\s+/g, ' ')])], '  the   door ');
     expect(highlighted(hit)).toBe('the door');
   });
 
   it('toLowerCase 会变长的字符不让高亮区间错位', () => {
     // 'İ'（U+0130）小写后是两个 UTF-16 单元，常规 indexOf 下标会偏一位
-    const [hit] = searchSessions([sess('a', 't', ['İstanbul trip to Paris'])], 'paris');
+    const [hit] = matchSessions([sess('a', 't', ['İstanbul trip to Paris'])], 'paris');
     expect(highlighted(hit)).toBe('Paris');
   });
 });
@@ -142,7 +142,7 @@ describe('extractSearchableMessages', () => {
 
   it('toolResult 与思考内容不入索引', () => {
     const sessions = [{ id: 's', title: 't', updatedAt: 0, messages: extractSearchableMessages(messages) }];
-    expect(searchSessions(sessions, 'page dump')).toEqual([]);
-    expect(searchSessions(sessions, 'secret')).toEqual([]);
+    expect(matchSessions(sessions, 'page dump')).toEqual([]);
+    expect(matchSessions(sessions, 'secret')).toEqual([]);
   });
 });

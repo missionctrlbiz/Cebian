@@ -76,13 +76,20 @@ function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }: Histo
   // 搜索跑在后台（transcript 本体在 Dexie），前端只拿命中 + 摘录。面板关闭时清空查询。
   const search = useSessionSearch(open);
 
-  /** 打开命中的会话；正文命中时带上跳转目标，聊天页会滚到那条消息并标出查询词。 */
+  /** 打开命中的会话；正文命中时带上跳转目标（用产生这批结果的 query，而非输入框里
+   *  可能已改动的文字），聊天页会滚到那条消息并标出查询词。 */
   const openHit = (hit: SessionSearchHit) => {
-    const reveal = hit.messageIndex !== undefined
-      ? { messageIndex: hit.messageIndex, query: search.query.trim() }
+    const reveal = hit.messageIndex !== undefined && search.hitsQuery
+      ? { messageIndex: hit.messageIndex, query: search.hitsQuery }
       : undefined;
     onSelectSession(hit.sessionId, reveal);
   };
+
+  // 搜索进行中会话列表变了（删除 / 改名 / 新消息）：重跑当前查询，结果跟着更新。
+  const { refresh: refreshSearch } = search;
+  useEffect(() => {
+    refreshSearch();
+  }, [sessions, refreshSearch]);
 
   // 分组边界只随列表变化重算（`Date.now()` 不进依赖）；每行的相对时间则在每次渲染时
   // 现算，免得面板长时间开着而时间文案冻在最后一次列表更新的时刻。
@@ -354,7 +361,7 @@ function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }: Histo
                   >
                     <div className="flex items-baseline gap-2 min-w-0">
                       <p className="text-sm font-medium truncate min-w-0 flex-1">
-                        {hit.title || t('vfs.untitledSession')}
+                        {hit.title}
                       </p>
                       <span className="text-xs text-muted-foreground shrink-0">
                         {formatRelativeTime(hit.updatedAt)}

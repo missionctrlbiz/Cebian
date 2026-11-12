@@ -489,10 +489,7 @@ const chatClientHandlers: ClientHandlerMap = {
    *  的 `error` 帧（那会被聊天视图当成本轮对话失败）。 */
   async session_search(port, msg) {
     try {
-      const hits = await searchAllSessions(
-        typeof msg.query === 'string' ? msg.query : '',
-        { since: msg.since, until: msg.until },
-      );
+      const hits = await searchAllSessions(typeof msg.query === 'string' ? msg.query : '');
       post(port, {
         type: 'session_search_result',
         requestId: msg.requestId,

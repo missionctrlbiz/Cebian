@@ -4,11 +4,12 @@
 //
 // 定位口径：聊天页每条消息外包一层 `data-message-index={idx}`（idx = messages 数组
 // 下标），与后台搜索给出的 messageIndex 同源（都是 main 分支 projectEntries 的下标）。
-// 搜索之后会话若又变了（新消息 / 切分支），下标处的消息不含查询词时退回按文本找
-// 第一条含词的消息；都找不到就只打开会话、不滚动。
+// 搜索之后会话若又变了（新消息 / 切分支），下标处的消息不含查询词时，从该下标向两侧
+// 由近及远找含词的消息；都找不到就只打开会话、不滚动。跳转处理完即从路由 state 里
+// 清掉目标（replace，不重载会话），前进 / 后退回到这一项时不会再跳一次。
 
-import { useEffect, useRef, type RefObject } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { MessageReveal } from '@/components/layout/HistoryPanel';
 
 const HIGHLIGHT_NAME = 'cebian-search-match';
@@ -23,14 +24,26 @@ function readReveal(state: unknown): MessageReveal | undefined {
   return { messageIndex: r.messageIndex, query: r.query };
 }
 
-/** 找要跳到的消息槽（`display: contents` 的包裹层）。 */
+/** 与后台建索引同一口径：空白归一 + 小写。 */
+function normalizeText(text: string | null): string {
+  return (text ?? '').replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** 找要跳到的消息槽（`display: contents` 的包裹层）：优先 messageIndex 处，不含查询词时
+ *  取离它最近的含词消息；都不含则仍返回下标处的槽（可能为 null）。 */
 function findSlot(root: HTMLElement, reveal: MessageReveal, needle: string): HTMLElement | null {
   const exact = root.querySelector<HTMLElement>(`[data-message-index="${reveal.messageIndex}"]`);
-  if (exact && exact.textContent?.toLowerCase().includes(needle)) return exact;
+  if (exact && normalizeText(exact.textContent).includes(needle)) return exact;
+  let best: HTMLElement | null = null;
+  let bestDistance = Infinity;
   for (const slot of root.querySelectorAll<HTMLElement>('[data-message-index]')) {
-    if (slot.textContent?.toLowerCase().includes(needle)) return slot;
+    const distance = Math.abs(Number(slot.dataset.messageIndex) - reveal.messageIndex);
+    if (distance < bestDistance && normalizeText(slot.textContent).includes(needle)) {
+      best = slot;
+      bestDistance = distance;
+    }
   }
-  return exact;
+  return best ?? exact;
 }
 
 /** 手动算 scrollTop 而不用 scrollIntoView：后者会连带滚动 overflow-hidden 的外层容器（#91）。 */
@@ -76,42 +89,55 @@ function useMessageReveal(
   ready: boolean,
 ): void {
   const location = useLocation();
-  // 同一次导航只跳一次：之后消息流式增长不应反复把视口拽回来。
-  const handledKey = useRef<string | null>(null);
+  const navigate = useNavigate();
+  // 当前生效的描边（及其撤除定时器）。不挂在主 effect 的 cleanup 上：处理完会 replace
+  // 掉路由 state，那次 location 变化不该把刚加上的描边 / 高亮清掉。
+  const active = useRef<{ el: HTMLElement; timer: number } | null>(null);
+
+  const dispose = useCallback(() => {
+    if (active.current) {
+      window.clearTimeout(active.current.timer);
+      active.current.el.classList.remove(REVEAL_CLASS);
+      active.current = null;
+    }
+    clearQueryMarks();
+  }, []);
+
+  // 卸载、或切走 / 重新加载会话时撤掉描边与高亮。
+  useEffect(() => dispose, [dispose]);
+  useEffect(() => {
+    if (!ready) dispose();
+  }, [ready, dispose]);
 
   useEffect(() => {
     const reveal = readReveal(location.state);
-    if (!reveal || !ready || handledKey.current === location.key) return;
-    unpin();
-
-    let revealed: HTMLElement | null = null;
-    let timer = 0;
-    // 等本帧布局完成（含刚挂上的消息 DOM）再测量
-    // handledKey 在帧回调里才记：StrictMode 下首轮 effect 的帧会被 cleanup 取消，
-    // 若提前记下，第二轮会直接 return，跳转就丢了。
+    if (!reveal || !ready) return;
+    const path = location.pathname;
+    // 等本帧布局完成（含刚挂上的消息 DOM）再测量。StrictMode 下首轮的帧会被 cleanup
+    // 取消，第二轮照常执行。
     const frame = requestAnimationFrame(() => {
-      handledKey.current = location.key;
+      // 先清掉路由里的目标：前进 / 后退回到这一项时不再重复跳转
+      navigate(path, { replace: true, state: null });
+      dispose();
       const root = scrollRef.current;
       const viewport = root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]');
       if (!root || !viewport) return;
-      const needle = reveal.query.trim().replace(/\s+/g, ' ').toLowerCase();
+      const needle = normalizeText(reveal.query.trim());
       const slot = findSlot(root, reveal, needle);
       const el = slot?.firstElementChild as HTMLElement | null | undefined;
       if (!slot || !el) return;
+      // 找到目标才停止贴底跟随，否则保持原有的贴底行为
+      unpin();
       scrollIntoViewport(viewport, el);
       el.classList.add(REVEAL_CLASS);
-      revealed = el;
-      timer = window.setTimeout(() => el.classList.remove(REVEAL_CLASS), REVEAL_MS);
+      active.current = {
+        el,
+        timer: window.setTimeout(() => el.classList.remove(REVEAL_CLASS), REVEAL_MS),
+      };
       markQuery(slot, needle);
     });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
-      revealed?.classList.remove(REVEAL_CLASS);
-      clearQueryMarks();
-    };
-  }, [location.key, location.state, ready, scrollRef, unpin]);
+    return () => cancelAnimationFrame(frame);
+  }, [location.state, location.pathname, ready, scrollRef, unpin, navigate, dispose]);
 }
 
 // ─── Public API ───

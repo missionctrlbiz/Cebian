@@ -10,33 +10,42 @@
 
 import {
   extractSearchableMessages,
-  searchSessions,
+  matchSessions,
   type SearchableMessage,
   type SearchableSession,
 } from '@/lib/agent/session-search';
-import type { SessionSearchHit, SessionSearchScope } from '@/lib/ipc/protocol';
+import type { SessionSearchHit } from '@/lib/ipc/protocol';
 import { sessionStore } from './session-store';
 
-/** 单条会话的逐条可搜文本，带键供缓存判等。 */
+/** 单条会话的逐条可搜文本（读取中即为在途 promise），带键供缓存判等。 */
 interface CachedText {
   key: string;
-  messages: SearchableMessage[];
+  messages: Promise<SearchableMessage[]>;
 }
 
+// 只存 user / assistant 正文，随 SW 生命周期存活（SW 被回收即清空）。缓存的是
+// promise：debounce 后并发的多次搜索在冷缓存上共享同一次读取，而不是各自全量重读。
 const cache = new Map<string, CachedText>();
 
 function cacheKey(count: number, updatedAt: number): string {
   return `${count}:${updatedAt}`;
 }
 
-/**
- * 搜一批会话（标题 + 正文，不区分大小写）。scope 的 since / until 按
- * 会话 updatedAt 过滤。命中排序 / 摘录由纯函数 searchSessions 负责。
- */
-async function searchAllSessions(
-  query: string,
-  scope: SessionSearchScope = {},
-): Promise<SessionSearchHit[]> {
+/** 取一条会话的可搜文本：键一致复用（含在途读取），否则重读；读取失败不留缓存。 */
+function readSearchable(id: string, key: string): Promise<SearchableMessage[]> {
+  const cached = cache.get(id);
+  if (cached && cached.key === key) return cached.messages;
+  const messages = sessionStore.readMessages(id).then(extractSearchableMessages);
+  const entry: CachedText = { key, messages };
+  cache.set(id, entry);
+  messages.catch(() => {
+    if (cache.get(id) === entry) cache.delete(id);
+  });
+  return messages;
+}
+
+/** 搜全部会话（标题 + 正文，不区分大小写）。命中排序 / 摘录由纯函数 matchSessions 负责。 */
+async function searchAllSessions(query: string): Promise<SessionSearchHit[]> {
   const metas = await sessionStore.list();
 
   const alive = new Set(metas.map((m) => m.id));
@@ -46,23 +55,16 @@ async function searchAllSessions(
 
   const searchable: SearchableSession[] = [];
   for (const meta of metas) {
-    if (scope.since !== undefined && meta.updatedAt < scope.since) continue;
-    if (scope.until !== undefined && meta.updatedAt > scope.until) continue;
     const base = { id: meta.id, title: meta.title, updatedAt: meta.updatedAt };
     // 空会话 / 迁移失败行：只搜标题
     if (meta.messageCount === 0 || meta.treeMigrationFailed) {
       searchable.push({ ...base, messages: [] });
       continue;
     }
-    const key = cacheKey(meta.messageCount, meta.updatedAt);
-    let entry = cache.get(meta.id);
-    if (!entry || entry.key !== key) {
-      entry = { key, messages: extractSearchableMessages(await sessionStore.readMessages(meta.id)) };
-      cache.set(meta.id, entry);
-    }
-    searchable.push({ ...base, messages: entry.messages });
+    const messages = await readSearchable(meta.id, cacheKey(meta.messageCount, meta.updatedAt));
+    searchable.push({ ...base, messages });
   }
-  return searchSessions(searchable, query);
+  return matchSessions(searchable, query);
 }
 
 // ─── Public API ───

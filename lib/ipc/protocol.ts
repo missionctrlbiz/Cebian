@@ -177,16 +177,9 @@ export type ClientMessage =
   /**
    * 关键词搜索（issue #101）：跨会话搜标题 + 消息正文，全在设备端（client-side，
    * 不走 provider）。客户端生成 requestId，后台按它原样带回，多个窗口 / 快速
-   * 连敲并发时据此配对；响应是 `session_search_result`。
-   * `since` / `until`（可选）按会话 updatedAt 做日期过滤。
+   * 连敲并发时据此配对；只回发起端口：`session_search_result` / `session_search_error`。
    */
-  | ({ type: 'session_search'; query: string; requestId: string } & SessionSearchScope);
-
-/** 搜索作用域：缺省 = 所有会话；`since` / `until`（毫秒）按会话 updatedAt 过滤。 */
-export interface SessionSearchScope {
-  since?: number;
-  until?: number;
-}
+  | { type: 'session_search'; query: string; requestId: string };
 
 /** `session_search` 命中条目（issue #101）：会话 + 命中位置 + 摘录。
  * 摘录是正文第一处命中附近 ±60 字（由 lib/agent/session-search 切出）。 */
