@@ -2,7 +2,9 @@
 // 以引注块追加进输入框。内容脚本里的 SelectionToolbar 管的是网页文本，这里只处理侧边栏
 // 自己的消息区。可引用的正文由 Message.tsx 用 data-quote-source 标出（值为角色）。
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Quote, X } from 'lucide-react';
+import { Quote, Copy } from 'lucide-react';
+import { copyText } from '@/lib/ui/clipboard';
+import { quoteBlocks } from '@/components/chat/quote-format';
 import { Button } from '@/components/ui/button';
 import { t } from '@/lib/i18n';
 import type { QuotePiece } from '@/components/chat/quote-format';
@@ -212,29 +214,33 @@ function QuoteToolbar({ root, wrapper, onQuote }: QuoteToolbarProps) {
     if (pieces.length > 0) onQuote(pieces);
   };
 
+  const handleCopy = async () => {
+    if (!root) return;
+    const pieces = takeQuotePieces(root);
+    setAnchor(null);
+    const text = quoteBlocks(pieces).trim();
+    if (!text) return;
+    await copyText(text);
+  };
+
+
   return (
     <div
       ref={barRef}
       role="group"
-      aria-label={t('chat.message.quote')}
+      aria-label={t('chat.message.quoteChip')}
       className="absolute z-30 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 text-popover-foreground shadow-md"
       style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden' }}
       // 按下工具条不清空消息区里的选区
       onMouseDown={(e) => e.preventDefault()}
     >
+      <Button variant="ghost" size="xs" onClick={handleCopy}>
+        <Copy />
+        {t('chat.message.quoteCopy')}
+      </Button>
       <Button variant="ghost" size="xs" onClick={handleQuote}>
         <Quote />
-        {t('chat.message.quote')}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
-        onClick={() => setAnchor(null)}
-        title={t('chat.message.quoteDismiss')}
-        aria-label={t('chat.message.quoteDismiss')}
-      >
-        <X />
+        {t('chat.message.quoteAddToChat')}
       </Button>
     </div>
   );

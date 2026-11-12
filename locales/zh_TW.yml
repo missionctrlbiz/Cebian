@@ -800,8 +800,11 @@ chat:
     # 收尾 assistant 回覆上分叉按鈕的 tooltip / aria-label（issue #60）
     fork: "分叉"
     # 在對話裡選取文字時浮現的引用工具列（issue #103）
-    quote: "引用"
-    quoteDismiss: "關閉"
+    quoteCopy: "複製"
+    quoteAddToChat: "加入對話"
+    quoteChip: "引用的段落"
+    quoteChipRemove: "移除引用的段落"
+    quoteCopied: "已複製到剪貼簿"
     # 引用出自單則訊息時，引文區塊開頭的出處行（以粗體顯示）
     quoteFromUser: "你："
     quoteFromAssistant: "助理："

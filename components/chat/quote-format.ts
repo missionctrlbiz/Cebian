@@ -34,10 +34,11 @@ function appendQuoteToDraft(draft: string, text: string, attribution?: string): 
 }
 
 /** 选区落在某一段消息正文内的那一截文本，及其出处行（已本地化，如「Assistant:」）。 */
-interface QuotePiece {
+export interface QuotePiece {
   text: string;
   attribution?: string;
 }
+
 
 /**
  * 把按消息切好的多截选中文本依次追加成引注块：相邻且出处相同的几截（如同一轮里
@@ -57,5 +58,52 @@ function appendQuotePiecesToDraft(draft: string, pieces: readonly QuotePiece[]):
   return merged.reduce((acc, piece) => appendQuoteToDraft(acc, piece.text, piece.attribution), draft);
 }
 
-export type { QuotePiece };
-export { appendQuoteToDraft, appendQuotePiecesToDraft };
+/** 把引用件合并（相邻同源合并）后渲染成引注块文本，不带任何草稿内容。 */
+function quoteBlocks(pieces: readonly QuotePiece[]): string {
+  const merged: QuotePiece[] = [];
+  for (const piece of pieces) {
+    if (!piece.text.trim()) continue;
+    const prev = merged[merged.length - 1];
+    if (prev && prev.attribution === piece.attribution) {
+      prev.text = `${prev.text}\n\n${piece.text}`;
+    } else {
+      merged.push({ ...piece });
+    }
+  }
+  const blocks: string[] = [];
+  for (const piece of merged) {
+    const body = normalizeQuoteText(piece.text);
+    if (!body) continue;
+    const lines = body.split('\n').map((line) => (line ? `> ${line}` : '>'));
+    const label = piece.attribution?.trim();
+    if (label) lines.unshift(`> **${label}**`);
+    blocks.push(lines.join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
+/** 发送时用的载荷：引注块在前，用户自己敲的正文在后（空行隔开）；引用或正文缺时任取其一。 */
+function composeOutgoingMessage(draft: string, pieces: readonly QuotePiece[]): string {
+  const block = quoteBlocks(pieces);
+  const typed = draft.trim();
+  if (block && typed) return `${block}\n\n${typed}`;
+  return block || typed;
+}
+
+/** 芯片上的单行摘要：第一行 + 截断，带出处前缀（没有出处就裸文本）。 */
+function quoteChipLabel(pieces: readonly QuotePiece[]): string {
+  const first = pieces.find((p) => p.text.trim());
+  if (!first) return '';
+  const label = first.attribution?.trim();
+  const line = first.text.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const short = line.length > 40 ? `${line.slice(0, 40)}…` : line;
+  return label ? `${label} ${short}` : short;
+}
+
+export {
+  appendQuoteToDraft,
+  appendQuotePiecesToDraft,
+  quoteBlocks,
+  composeOutgoingMessage,
+  quoteChipLabel,
+};

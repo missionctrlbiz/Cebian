@@ -20,9 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### 新增 / Added
 
-- 在对话里选中消息正文时会浮出「引用」按钮，点一下即把选中文字以 markdown 引注块追加进输入框，光标停在块下方方便接着提问；每段引文都会标出是「你」还是「助手」说的，跨多条消息选中时只取消息正文、不带界面文字。已有草稿与附件都会保留 ([#103](https://github.com/maotoumao/Cebian/issues/103))
+- 在对话里选中消息正文时浮出「复制 / 加入聊天」工具条：点「加入聊天」把选中段落钉成输入框上方的一枚芯片（不写进输入框文本），芯片带出处摘要与移除按钮；发送时引注块（带「你 / 助手」出处标记，跨消息只取正文）随正文一起发出，模型据此精确针对那段内容作答；点「复制」直接复制选区 ([#103](https://github.com/maotoumao/Cebian/issues/103))
 
-- Selecting message text in a conversation shows a floating "Quote" button that appends the selection to the input box as a markdown quote block, leaving the caret below it so you can ask about that passage; each quoted part is labeled with who said it ("You" or "Assistant"), and selections across several messages pick up only message text, not surrounding UI. Existing draft text and attachments are kept ([#103](https://github.com/maotoumao/Cebian/issues/103))
+- Selecting message text in a conversation shows a floating "Copy / Add to chat" toolbar: "Add to chat" pins the selection as a chip above the input box (it is not typed into the box); the chip shows a source summary and a remove button. On send, the quoted block (labeled "You" / "Assistant", message text only) is attached to your message so the model can target that exact passage; "Copy" copies the selection to the clipboard ([#103](https://github.com/maotoumao/Cebian/issues/103))
 
 ## 1.8.3 - 2026-11-09
 

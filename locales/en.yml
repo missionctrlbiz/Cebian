@@ -809,8 +809,14 @@ chat:
     # Tooltip/aria-label for the fork button on a turn-closing assistant reply (issue #60).
     fork: "Fork"
     # Floating toolbar shown when text in the conversation is selected (issue #103).
-    quote: "Quote"
-    quoteDismiss: "Dismiss"
+    # "Copy" copies the selection; "Add to chat" pins it as a chip above the composer.
+    quoteCopy: "Copy"
+    quoteAddToChat: "Add to chat"
+    # Composer chip for a pinned quote (label is computed in JS); these are the
+    # accessible name and the remove-button tooltip.
+    quoteChip: "Quoted passage"
+    quoteChipRemove: "Remove quoted passage"
+    quoteCopied: "Copied to clipboard"
     # Attribution line prefixed to a quote taken from a single message (rendered bold).
     quoteFromUser: "You:"
     quoteFromAssistant: "Assistant:"

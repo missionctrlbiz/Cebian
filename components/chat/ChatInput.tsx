@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useImperativeHandle, forwardRef, type KeyboardEvent } from 'react';
-import { Send, Square, MousePointer2, Camera, Paperclip, Smartphone, Crosshair, FileText, X, FileType, Film, Network, ListPlus, CornerDownRight } from 'lucide-react';
+import { Send, Square, MousePointer2, Camera, Paperclip, Smartphone, Crosshair, FileText, X, FileType, Film, Network, ListPlus, CornerDownRight, Quote } from 'lucide-react';
 import { showDialog } from '@/lib/ui/dialog';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,7 @@ import { useMobileEmulation } from '@/hooks/useMobileEmulation';
 import { useChatAppearance } from '@/hooks/useChatAppearance';
 import { downloadFile, formatCompactCount, isApplePlatform } from '@/lib/utils';
 import { recordingMetaText, recordingTitle } from '@/components/chat/recording-meta';
-import { appendQuotePiecesToDraft, type QuotePiece } from '@/components/chat/quote-format';
+import { composeOutgoingMessage, quoteChipLabel, type QuotePiece } from '@/components/chat/quote-format';
 import { t } from '@/lib/i18n';
 import type { PromptDispatchResult, QueueTakeResult } from '@/hooks/useBackgroundAgent';
 
@@ -388,8 +388,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isPicking]);
 
-  // 只挂了提示词、一个字没打也算可发——提示词本身就是这一轮的请求。
-  const canSend = value.trim().length > 0 || slashPrompt !== null;
+  // 划词引用（issue #103）：不写进输入框文本，而是钉成芯片（pendingQuote）；发送时由
+  // composeOutgoingMessage 把引注块拼进最终载荷。芯片带出处摘要 + 移除按钮，与附件同层。
+  const [pendingQuote, setPendingQuote] = useState<ReadonlyArray<QuotePiece> | null>(null);
+  const removeQuote = useCallback(() => setPendingQuote(null), []);
+  // 只挂了提示词或引用芯片、一个字没打也算可发——芯片里的引用本身就是这一轮的上下文。
+  const canSend = value.trim().length > 0 || slashPrompt !== null || pendingQuote !== null;
   // 发送 / 停止共用一个按钮位（与 Claude / Codex 一致）：运行中输入框空着是停止键，打了字
   // 就变成按设置排队 / 插话的发送键，这时停止走 Esc。
   const showStop = isAgentRunning && !canSend;
@@ -455,11 +459,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       if (sessionIdRef.current !== dispatchSessionId) return;
 
       const outgoing = getAttachments();
-      const result = await onSend(text, outgoing.length > 0 ? outgoing : undefined, dispatchSessionId, slashPrompt ?? undefined, delivery);
+      // 划词引用（issue #103）：芯片里的引注块拼进最终载荷（块在前、正文在后）；
+      // 输入框里的 value 只是用户自己敲的部分，引用不再直接可见于框中。
+      const composed = pendingQuote ? composeOutgoingMessage(outgoingText, pendingQuote) : text;
+      const result = await onSend(composed, outgoing.length > 0 ? outgoing : undefined, dispatchSessionId, slashPrompt ?? undefined, delivery);
       if (result.status !== 'dispatched') return;
       if (sessionIdRef.current !== dispatchSessionId) return;
 
       setValue('');
+      setPendingQuote(null);
       updateAttachments(() => []);
       setSlashPrompt(null);
       setShowSlash(false);
@@ -479,6 +487,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setHistoryIndex(null);
     setDraft('');
     setSlashPrompt(null);
+    setPendingQuote(null);
     slashPromptSeqRef.current++;
     interimSuffixRef.current = '';
     speech.stop();
@@ -678,6 +687,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     });
   }, []);
 
+  // 划词引用（issue #103）：点「Add to chat」把选中的段落钉成芯片（不写进输入框文本），
+  // 发送时由 composeOutgoingMessage 拼进最终载荷；芯片带出处摘要 + 移除按钮。
+  const appendQuote = useCallback((pieces: readonly QuotePiece[]) => {
+    if (pieces.length === 0) return;
+    setPendingQuote(pieces);
+    focusCaretAtEnd();
+  }, [focusCaretAtEnd]);
+
   // 由外部（欢迎页示例卡片）填入文本并聚焦，不夺走输入框对 value 的所有权。
   const fill = useCallback((text: string) => {
     setValue(text);
@@ -687,14 +704,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     focusCaretAtEnd();
   }, [focusCaretAtEnd]);
 
-  // 划词引用追加（issue #103）：拼装规则见 appendQuotePiecesToDraft；只改文本，附件等状态不动。
-  // 拼好的草稿以空行结尾，光标落在末尾即引注块下方。
-  const appendQuote = useCallback((pieces: readonly QuotePiece[]) => {
-    setValue((prev) => appendQuotePiecesToDraft(prev, pieces));
-    setShowSlash(false);
-    setHistoryIndex(null);
-    focusCaretAtEnd();
-  }, [focusCaretAtEnd]);
+
 
   // Scan prompts when slash menu opens
   useEffect(() => {
@@ -1013,6 +1023,29 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             >
               <Smartphone className="size-3.5" />
             </Button>
+          )}
+
+          {pendingQuote !== null && (
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border-b border-border/50">
+              <Badge
+                variant="outline"
+                className="shrink-0 text-[0.65rem] font-mono gap-1 h-5 rounded pl-1 pr-0.5 text-sky-400 border-sky-400/20 bg-sky-400/5 group"
+              >
+                <Quote className="size-2.5 shrink-0" />
+                <span className="truncate max-w-40" title={quoteChipLabel(pendingQuote)}>
+                  {quoteChipLabel(pendingQuote)}
+                </span>
+                <button
+                  className="opacity-60 hover:opacity-100 p-0.5 rounded-sm hover:bg-foreground/10 cursor-pointer"
+                  title={t('chat.message.quoteChipRemove')}
+                  aria-label={t('chat.message.quoteChipRemove')}
+                  disabled={isDispatching}
+                  onClick={removeQuote}
+                >
+                  <X className="size-2.5" />
+                </button>
+              </Badge>
+            </div>
           )}
 
           {attachments.length > 0 && (
