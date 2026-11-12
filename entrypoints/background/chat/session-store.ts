@@ -138,6 +138,17 @@ class SessionStore {
     return (await this.open(id))?.record;
   }
 
+  /**
+   * 只读：当前 main 分支投影出的 messages，与 `open()` 的 `record.messages` 逐位对齐
+   * （同一 projectEntries + sanitize 口径，sanitize 不增删条目）。不做迁移懒重试、不建
+   * 树句柄、不进 repo 缓存、不算分支信息——会话搜索用。迁移失败行（`treeMigrationFailed`）
+   * 的日志不完整，调用方应自行跳过。
+   */
+  async readMessages(id: string): Promise<AgentMessage[]> {
+    const { messages } = projectEntries(await this.repo.readMainBranch(id));
+    return sanitizeAgentMessages(messages);
+  }
+
   /** `load` 的轻量版：只读 meta 行（不打开树、不投影 transcript）。自动标题比对「用户
    *  是否已改名」用。 */
   async loadMeta(id: string): Promise<Omit<SessionRecord, 'messages'> | undefined> {

@@ -110,15 +110,16 @@ common:
       0: "尚無訊息"
       1: "1 則訊息"
       n: "$1 則訊息"
-    # 對話關鍵詞搜索（issue #101）
-    searchPlaceholder: "搜索對話"
+    # 對話關鍵詞搜尋（issue #101）
+    searchPlaceholder: "搜尋對話"
     # $1 = 命中數
     searchResults:
-      1: "1 個匹配對話"
-      n: "$1 個匹配對話"
-    searchNoResults: "沒有匹配的對話"
-    searchFailed: "搜索失敗"
-    searchClear: "清除搜索"
+      1: "1 個相符的對話"
+      n: "$1 個相符的對話"
+    searchNoResults: "沒有符合的對話"
+    searching: "正在搜尋…"
+    searchFailed: "搜尋失敗"
+    searchClear: "清除搜尋"
 
 # ─── 頁面注入 UI（懸浮球、劃詞工具列） ───
 pageActions:

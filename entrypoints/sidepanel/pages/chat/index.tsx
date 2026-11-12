@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactElement } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowDown, Paperclip } from 'lucide-react';
@@ -46,6 +46,7 @@ import type { Attachment } from '@/lib/agent/attachments';
 import type { SlashPrompt } from '@/lib/ai-config/slash-prompt';
 import type { SessionSnapshot } from '@/lib/ipc/protocol';
 import { t } from '@/lib/i18n';
+import { useMessageReveal } from './useMessageReveal';
 
 /**
  * 交互式工具（如 ask_user）被用户取消时，结果的 `details` 带 `cancelled: true`。
@@ -54,6 +55,20 @@ import { t } from '@/lib/i18n';
 function isCancelledToolResult(tr: ToolResultMessage): boolean {
   const details = tr.details as { cancelled?: unknown } | null | undefined;
   return typeof details === 'object' && details !== null && Boolean(details.cancelled);
+}
+
+/**
+ * 给每条渲染出的消息套一层 `display: contents` 的槽，标上它在 messages 数组里的下标
+ * （历史搜索跳转按它定位，见 useMessageReveal）。槽不产生盒子，flex 间距 / 外边距
+ * 照旧作用在消息本身上；key 沿用消息元素自己的 key。
+ */
+function withMessageIndex(node: ReactElement | null, idx: number): ReactElement | null {
+  if (!node) return null;
+  return (
+    <div key={node.key ?? idx} data-message-index={idx} className="contents">
+      {node}
+    </div>
+  );
 }
 
 // ─── ChatPage ───
@@ -215,7 +230,7 @@ export function ChatPage({ onOpenSettings, onTitleChange }: { onOpenSettings?: (
   // as soon as the user scrolls up. Resumes when the user scrolls back near
   // the bottom. Driven internally by ResizeObserver, so no `messages`-dep
   // effect needed here.
-  const { scrollRef, isAtBottom, scrollToBottom } = useStickToBottom();
+  const { scrollRef, isAtBottom, scrollToBottom, unpin } = useStickToBottom();
 
   // Force-pin to bottom when switching sessions or opening a fresh chat.
   useEffect(() => {
@@ -292,6 +307,9 @@ export function ChatPage({ onOpenSettings, onTitleChange }: { onOpenSettings?: (
   // Session loading state: any route/state mismatch means the current
   // message array belongs to a different chat and must not be rendered.
   const sessionLoading = !isNewChat && routeSessionId !== activeSessionId;
+
+  // 从历史搜索结果打开时，滚到命中的那条消息并高亮（issue #101）。
+  useMessageReveal(scrollRef, unpin, !sessionLoading && messages.length > 0);
 
   return (
     <div className="flex-1 min-h-0 relative flex flex-col" {...fileDrop.zoneProps}>
@@ -624,7 +642,7 @@ export function ChatPage({ onOpenSettings, onTitleChange }: { onOpenSettings?: (
             }
 
             return null;
-          })}
+          }).map(withMessageIndex)}
 
           {/* Waiting placeholder */}
           {showWaitingPlaceholder && (

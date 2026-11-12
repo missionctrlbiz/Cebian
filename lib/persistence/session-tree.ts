@@ -469,6 +469,28 @@ class DexieSessionRepo implements SessionRepo<SessionTreeMeta, SessionTreeCreate
     return rows.map(rowToMeta);
   }
 
+  /**
+   * 只读快照：从盘上重放日志，返回当前 main 分支的 entry（根 → 叶）。不进 storage
+   * 缓存、不建树句柄、不截断坏尾（遇首个非法 mutation 即停，取一致前缀），全程无写。
+   * 供会话搜索这类「扫一遍就丢」的读方使用；要追加 / 分支操作仍走 open()。
+   */
+  async readMainBranch(id: string): Promise<Entry[]> {
+    const state = new SessionState();
+    const rows = await this.db.sessionMutations
+      .where('[sessionId+seq]')
+      .between([id, Dexie.minKey], [id, Dexie.maxKey])
+      .toArray();
+    for (const row of rows) {
+      try {
+        state.applyMutation(row.mutation);
+      } catch {
+        break;
+      }
+    }
+    const leaf = state.requireLane('main');
+    return leaf === null ? [] : state.findEntriesOnBranch({ start: leaf, order: 'oldestFirst' });
+  }
+
   async delete(metadata: SessionTreeMeta): Promise<void> {
     const cached = this.storages.get(metadata.id);
     this.storages.delete(metadata.id);

@@ -221,3 +221,18 @@
 .animate-mic-pulse {
   animation: mic-pulse-ring 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
+
+/* 历史搜索跳转（issue #101）：命中的那条消息短暂描边后淡出（类名由
+   useMessageReveal 动态挂上），查询词用 CSS Custom Highlight API 标出。 */
+@keyframes message-reveal {
+  0%, 60% { box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 60%, transparent); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+.animate-message-reveal {
+  border-radius: var(--radius);
+  animation: message-reveal 2.4s ease-out;
+}
+::highlight(cebian-search-match) {
+  background-color: color-mix(in oklab, var(--primary) 35%, transparent);
+  color: inherit;
+}

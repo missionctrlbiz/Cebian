@@ -20,14 +20,20 @@ import { toast } from 'sonner';
 import { showConfirm } from '@/lib/ui/dialog';
 import { t } from '@/lib/i18n';
 
+/** 从搜索结果打开会话时的跳转目标：滚到第 `messageIndex` 条消息并标出 `query`。 */
+interface MessageReveal {
+  messageIndex: number;
+  query: string;
+}
+
 interface HistoryPanelProps {
   open: boolean;
   onClose: () => void;
-  onSelectSession: (sessionId: string) => void;
+  onSelectSession: (sessionId: string, reveal?: MessageReveal) => void;
   onDeleteSession?: (sessionId: string) => void;
 }
 
-/** 搜索摘录里把命中词高亮。区间 = [snippetIndex, snippetIndex + matchLength)。 */
+/** 搜索摘录里把命中词高亮。区间 = [snippetIndex, snippetIndex + matchLength)；越界时不高亮。 */
 function renderSearchSnippet(hit: SessionSearchHit): React.ReactNode {
   const snippet = hit.snippet;
   if (!snippet || hit.snippetIndex === undefined || hit.matchLength === undefined) {
@@ -35,6 +41,7 @@ function renderSearchSnippet(hit: SessionSearchHit): React.ReactNode {
   }
   const start = hit.snippetIndex;
   const end = start + hit.matchLength;
+  if (start < 0 || end > snippet.length || end <= start) return snippet;
   return (
     <>
       {snippet.slice(0, start)}
@@ -60,14 +67,22 @@ function formatRelativeTime(timestamp: number): string {
   return t('common.time.yearsAgo', [Math.floor(months / 12)]);
 }
 
-export function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }: HistoryPanelProps) {
+function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }: HistoryPanelProps) {
   // 列表 + 删除 + 置顶/归档都走 useSessionList 持有的那一条长连接端口。列表带着后台才
   // 知道的 `isRunning`（DB 不知道哪些 agent 正在流式），所以不能直接读库。
   const { sessions, loading, remove, setPlacement, rename } = useSessionList(open);
 
   // 关键词搜索（issue #101）：输入框挂在列表上方，查询非空时列表换成命中结果；
-  // 搜索跑在后台（transcript 本体在 Dexie），前端只拿命中 + 摘录。
+  // 搜索跑在后台（transcript 本体在 Dexie），前端只拿命中 + 摘录。面板关闭时清空查询。
   const search = useSessionSearch(open);
+
+  /** 打开命中的会话；正文命中时带上跳转目标，聊天页会滚到那条消息并标出查询词。 */
+  const openHit = (hit: SessionSearchHit) => {
+    const reveal = hit.messageIndex !== undefined
+      ? { messageIndex: hit.messageIndex, query: search.query.trim() }
+      : undefined;
+    onSelectSession(hit.sessionId, reveal);
+  };
 
   // 分组边界只随列表变化重算（`Date.now()` 不进依赖）；每行的相对时间则在每次渲染时
   // 现算，免得面板长时间开着而时间文案冻在最后一次列表更新的时刻。
@@ -284,7 +299,7 @@ export function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }
         )}
       </div>
 
-      {/* 搜索框（issue #101）：只在非选择模式显示；有查询时列表换成命中结果。 */}
+      {/* Search box (issue #101): hidden while selecting; a non-empty query swaps the list for hits. */}
       {!selectionMode && (
         <div className="px-5 py-2 border-b border-border">
           <div className="relative">
@@ -315,24 +330,38 @@ export function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }
         <div className="px-5 py-3">
           {search.active ? (
             <>
-              <p className="text-xs text-muted-foreground mb-2">
+              <p
+                className={`text-xs mb-2 ${search.error ? 'text-destructive' : 'text-muted-foreground'}`}
+                title={search.error ?? undefined}
+                aria-live="polite"
+              >
                 {search.error
                   ? t('common.session.searchFailed')
-                  : search.hits.length === 0
-                    ? t('common.session.searchNoResults')
-                    : t('common.session.searchResults', search.hits.length)}
+                  : search.searching
+                    ? t('common.session.searching')
+                    : search.hits.length === 0
+                      ? t('common.session.searchNoResults')
+                      : t('common.session.searchResults', search.hits.length)}
               </p>
-              <div className="flex flex-col gap-1">
+              {/* Keep the previous hits (dimmed) while a new search is pending to avoid flicker. */}
+              <div className={`flex flex-col gap-1 ${search.searching ? 'opacity-60' : ''}`}>
                 {search.hits.map((hit) => (
                   <button
                     key={hit.sessionId}
                     type="button"
-                    onClick={() => { onSelectSession(hit.sessionId); }}
+                    onClick={() => openHit(hit)}
                     className="w-full text-left rounded-lg border border-border bg-card hover:bg-accent px-3 py-2 cursor-pointer"
                   >
-                    <p className="text-sm font-medium truncate">{hit.title || t('vfs.untitledSession')}</p>
+                    <div className="flex items-baseline gap-2 min-w-0">
+                      <p className="text-sm font-medium truncate min-w-0 flex-1">
+                        {hit.title || t('vfs.untitledSession')}
+                      </p>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {formatRelativeTime(hit.updatedAt)}
+                      </span>
+                    </div>
                     {hit.snippet && (
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 break-words">
                         {renderSearchSnippet(hit)}
                       </p>
                     )}
@@ -396,3 +425,8 @@ export function HistoryPanel({ open, onClose, onSelectSession, onDeleteSession }
     </div>
   );
 }
+
+// ─── Public API ───
+
+export { HistoryPanel };
+export type { MessageReveal };

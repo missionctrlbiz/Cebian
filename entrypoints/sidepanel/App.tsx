@@ -7,7 +7,7 @@ import { DialogOutlet } from '@/components/dialogs/outlet';
 import { ConfirmOutlet } from '@/components/dialogs/confirm-outlet';
 import { UpdateNoticeOutlet } from '@/components/dialogs/update-notice-outlet';
 import { Header } from '@/components/layout/Header';
-import { HistoryPanel } from '@/components/layout/HistoryPanel';
+import { HistoryPanel, type MessageReveal } from '@/components/layout/HistoryPanel';
 import { useStorageItem } from '@/hooks/useStorageItem';
 import { useChangelogOnUpdate } from '@/hooks/useChangelogOnUpdate';
 import { useChatAppearance } from '@/hooks/useChatAppearance';
@@ -114,14 +114,20 @@ function App() {
     navigate('/chat/new');
   }, [location.pathname, navigate]);
 
-  const handleSelectSession = useCallback((sessionId: string) => {
+  const handleSelectSession = useCallback((sessionId: string, reveal?: MessageReveal) => {
     setHistoryOpen(false);
+    // 搜索结果带着跳转目标：放进路由 state，聊天页渲染完消息后滚过去（useMessageReveal）。
+    const state = reveal ? { reveal } : undefined;
     // If we're already viewing this session, do nothing — clearing chatTitle
     // and navigate-to-same-path would wipe the header without triggering a
     // resubscribe/IPC roundtrip to repopulate it.
-    if (location.pathname === `/chat/${sessionId}`) return;
+    // 同一会话里的搜索跳转只替换当前历史项（不清标题、不重新订阅），仅为了带上新的 state。
+    if (location.pathname === `/chat/${sessionId}`) {
+      if (state) navigate(location.pathname, { replace: true, state });
+      return;
+    }
     setChatTitle('');
-    navigate(`/chat/${sessionId}`);
+    navigate(`/chat/${sessionId}`, { state });
   }, [location.pathname, navigate]);
 
   const handleDeleteSession = useCallback((deletedId: string) => {

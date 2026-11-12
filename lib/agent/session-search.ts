@@ -1,114 +1,173 @@
-// 会话关键词搜索（issue #101）：纯函数，对一份「会话元数据 + 已归一的可搜索文本」
-// 做不区分大小写的子串匹配，产出去重后的命中列表。
+// 会话关键词搜索（issue #101）：纯函数。
 //
-// 文本提取（标题 / user 正文 / assistant 正文 / toolResult 正文）在调用方完成——
-// 这里只关心「给一个 query，按相关性排序返回命中」。相关性 = 标题命中权重高、
-// 再按会话 updatedAt 新者优先，同分内稳定。
+// - `extractSearchableMessages`：把一条会话 main 分支投影出的 messages 抽成「逐条可搜
+//   文本」，只取 user / assistant 正文（toolResult 多是整页 DOM / 文件转储，噪声大、
+//   缓存体积也大，故不入索引）。每条带它在投影数组里的下标，供 UI 跳到那条消息。
+// - `searchSessions`：对一组「会话元数据 + 逐条文本」做不区分大小写的子串匹配，
+//   每条会话出一行命中：标题命中权重高，同权重按 updatedAt 新者优先。
 
-export interface SearchableSession {
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { extractUserText, getAssistantText } from '@/lib/agent/message-helpers';
+
+/** 一条可搜索消息：空白已归一的正文 + 它在投影 messages 数组里的下标。 */
+interface SearchableMessage {
+  index: number;
+  text: string;
+}
+
+interface SearchableSession {
   id: string;
   title: string;
   updatedAt: number;
-  /** 预拼接好的全文（消息正文已抽取、换行归一），调用方负责构建。 */
-  content: string;
+  /** 按消息序排列的可搜文本（调用方用 extractSearchableMessages 构建）。 */
+  messages: readonly SearchableMessage[];
 }
 
-export interface SearchHit {
+interface SearchHit {
   sessionId: string;
   title: string;
   updatedAt: number;
-  /** 命中的位置集合：'title' / 'content'，content 再带上下文摘录。 */
+  /** 命中的位置集合：'title' / 'content'。 */
   matchedIn: Array<'title' | 'content'>;
-  /** content 命中时第一条命中处附近 ±60 字的摘录（不区分大小写高亮用的定位）。 */
+  /** 正文第一处命中所在消息在投影 messages 数组里的下标（UI 据此滚动定位）。 */
+  messageIndex?: number;
+  /** 正文第一处命中附近的摘录（空白已归一，截断处带省略号）。 */
   snippet?: string;
-  /** 摘录里命中词起点的下标（相对 snippet，小写化前）。 */
+  /** 命中词在 snippet 里的起点（UTF-16 下标，直接可用于 slice）。 */
   snippetIndex?: number;
-  /** 命中词字符长度（query 归一化后），与 snippetIndex 一起划出高亮区间。 */
+  /** 命中词在 snippet 里的长度；与 snippetIndex 一起划出高亮区间。 */
   matchLength?: number;
 }
 
 const SNIPPET_RADIUS = 60;
+const ELLIPSIS = '…';
 
-/** 把 query 转成可匹配的规范化小写串；空串直接返回 null（调用方判空）。 */
-function normalizeQuery(query: string): string | null {
-  const q = query.trim().toLowerCase();
-  return q.length > 0 ? q : null;
-}
-
-/** 取一条命中内容里第一个命中处附近 ±radius 的摘录。
- * 摘录保持原文（含换行），高亮区间按命中词在原文里的 [start, start+matchLength) 给出。 */
-function makeSnippet(
-  content: string,
-  lowerContent: string,
-  q: string,
-): { snippet: string; index: number; matchLength: number } | null {
-  const at = lowerContent.indexOf(q);
-  if (at < 0) return null;
-  const start = Math.max(0, at - SNIPPET_RADIUS);
-  const end = Math.min(content.length, at + q.length + SNIPPET_RADIUS);
-  const snippet = content.slice(start, end).replace(/\s+/g, ' ').trim();
-  // 归一化空白会压缩下标——重算命中词在新串里的起点，保证高亮不偏。
-  const index = snippet.toLowerCase().indexOf(q);
-  if (index < 0) return { snippet, index: 0, matchLength: q.length };
-  return { snippet, index, matchLength: q.length };
+/** 空白归一：连续空白压成一个空格并去首尾。消息文本与 query 共用同一口径。 */
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 /**
- * 在一组会话里找 query（不区分大小写）。
+ * 不区分大小写地在 hay 里找 needle（needle 已小写）。返回原串里的 [start, end)。
+ * 常态下 toLowerCase 不改变长度，直接 indexOf；个别字符（如 'İ'）小写后变长时，
+ * 逐字符折叠并记下「折叠串下标 → 原串下标」映射再找，保证区间落在原串上不偏。
+ */
+function findFolded(hay: string, needle: string): { start: number; end: number } | null {
+  const lower = hay.toLowerCase();
+  if (lower.length === hay.length) {
+    const at = lower.indexOf(needle);
+    return at < 0 ? null : { start: at, end: at + needle.length };
+  }
+  let folded = '';
+  const map: number[] = [];
+  for (let i = 0; i < hay.length; ) {
+    const cp = hay.codePointAt(i)!;
+    const width = cp > 0xffff ? 2 : 1;
+    const piece = String.fromCodePoint(cp).toLowerCase();
+    for (let k = 0; k < piece.length; k++) map.push(i);
+    folded += piece;
+    i += width;
+  }
+  map.push(hay.length);
+  const at = folded.indexOf(needle);
+  if (at < 0) return null;
+  const start = map[at];
+  // 末端映射到「命中最后一个折叠字符所属原字符」之后
+  const lastOrig = map[at + needle.length - 1];
+  const lastCp = hay.codePointAt(lastOrig)!;
+  return { start, end: lastOrig + (lastCp > 0xffff ? 2 : 1) };
+}
+
+/** 摘录边界别切开代理对（否则会渲染出 �）。 */
+function isLowSurrogate(text: string, i: number): boolean {
+  const c = text.charCodeAt(i);
+  return c >= 0xdc00 && c <= 0xdfff;
+}
+
+/** 以 [start, end) 为中心切 ±SNIPPET_RADIUS 的摘录，并给出命中词在摘录里的区间。 */
+function makeSnippet(
+  text: string,
+  start: number,
+  end: number,
+): { snippet: string; index: number; length: number } {
+  let from = Math.max(0, start - SNIPPET_RADIUS);
+  let to = Math.min(text.length, end + SNIPPET_RADIUS);
+  if (from > 0 && isLowSurrogate(text, from)) from++;
+  if (to < text.length && isLowSurrogate(text, to)) to++;
+  const head = from > 0 ? ELLIPSIS : '';
+  const tail = to < text.length ? ELLIPSIS : '';
+  return {
+    snippet: head + text.slice(from, to) + tail,
+    index: head.length + (start - from),
+    length: end - start,
+  };
+}
+
+/**
+ * 从投影 messages 抽出逐条可搜文本：只取 user（去信封）与 assistant（正文块），
+ * 其余角色（toolResult、压缩摘要、权限卡等）不入索引。空文本跳过；下标保持原位。
+ */
+function extractSearchableMessages(messages: readonly AgentMessage[]): SearchableMessage[] {
+  const out: SearchableMessage[] = [];
+  messages.forEach((m, index) => {
+    let raw = '';
+    if (m.role === 'user') raw = extractUserText(m);
+    else if (m.role === 'assistant') raw = getAssistantText(m);
+    else return;
+    const text = normalizeWhitespace(raw);
+    if (text) out.push({ index, text });
+  });
+  return out;
+}
+
+/**
+ * 在一组会话里找 query（不区分大小写，query 内空白按单空格匹配）。
  * - query 为空返回 []。
  * - 标题命中排前（标题权重 > 正文），同权重按 updatedAt 倒序。
- * - 每条会话只出一条（取正文第一个命中做摘录）。
+ * - 每条会话只出一行：正文取按消息序的第一处命中做摘录与定位。
  */
-export function searchSessions(
-  sessions: readonly SearchableSession[],
-  query: string,
-): SearchHit[] {
-  const q = normalizeQuery(query);
+function searchSessions(sessions: readonly SearchableSession[], query: string): SearchHit[] {
+  const q = normalizeWhitespace(query).toLowerCase();
   if (!q) return [];
 
-  interface Scored {
-    hit: SearchHit;
-    score: number;
-  }
-  const scored: Scored[] = [];
-
+  const scored: Array<{ hit: SearchHit; titleMatch: boolean }> = [];
   for (const s of sessions) {
-    const titleMatch = s.title.toLowerCase().includes(q);
-    const lowerContent = s.content.toLowerCase();
-    const contentMatch = lowerContent.includes(q);
-    if (!titleMatch && !contentMatch) continue;
-
+    const titleMatch = findFolded(s.title, q) !== null;
+    let content: SearchHit | null = null;
+    for (const m of s.messages) {
+      const range = findFolded(m.text, q);
+      if (!range) continue;
+      const snip = makeSnippet(m.text, range.start, range.end);
+      content = {
+        sessionId: s.id,
+        title: s.title,
+        updatedAt: s.updatedAt,
+        matchedIn: [],
+        messageIndex: m.index,
+        snippet: snip.snippet,
+        snippetIndex: snip.index,
+        matchLength: snip.length,
+      };
+      break;
+    }
+    if (!titleMatch && !content) continue;
     const matchedIn: SearchHit['matchedIn'] = [];
     if (titleMatch) matchedIn.push('title');
-    let snippet: string | undefined;
-    let snippetIndex: number | undefined;
-    let matchLength: number | undefined;
-    if (contentMatch) {
-      matchedIn.push('content');
-      const snip = makeSnippet(s.content, lowerContent, q);
-      if (snip) {
-        snippet = snip.snippet;
-        snippetIndex = snip.index;
-        matchLength = snip.matchLength;
-      }
-    }
-
-    const hit: SearchHit = {
-      sessionId: s.id,
-      title: s.title,
-      updatedAt: s.updatedAt,
-      matchedIn,
-      ...(snippet !== undefined ? { snippet, snippetIndex, matchLength } : {}),
-    };
-    // 权重：标题命中 +1000（排最前），正文命中 +1；同权重由 updatedAt 决先后
-    const score = (titleMatch ? 1000 : 0) + (contentMatch ? 1 : 0);
-    scored.push({ hit, score });
+    if (content) matchedIn.push('content');
+    const hit: SearchHit = content
+      ? { ...content, matchedIn }
+      : { sessionId: s.id, title: s.title, updatedAt: s.updatedAt, matchedIn };
+    scored.push({ hit, titleMatch });
   }
 
   scored.sort((a, b) => {
-    if (a.score !== b.score) return b.score - a.score;
+    if (a.titleMatch !== b.titleMatch) return a.titleMatch ? -1 : 1;
     return b.hit.updatedAt - a.hit.updatedAt;
   });
-
   return scored.map((s) => s.hit);
 }
+
+// ─── Public API ───
+
+export { extractSearchableMessages, searchSessions };
+export type { SearchableMessage, SearchableSession, SearchHit };

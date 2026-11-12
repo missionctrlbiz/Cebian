@@ -189,16 +189,19 @@ export interface SessionSearchScope {
 }
 
 /** `session_search` 命中条目（issue #101）：会话 + 命中位置 + 摘录。
- * 摘录是正文第一个命中处 ±60 字（由 lib/agent/session-search 切出）。 */
+ * 摘录是正文第一处命中附近 ±60 字（由 lib/agent/session-search 切出）。 */
 export interface SessionSearchHit {
   sessionId: string;
   title: string;
   updatedAt: number;
   matchedIn: Array<'title' | 'content'>;
+  /** 正文第一处命中所在消息在 main 分支投影 messages 里的下标（与 `session_loaded`
+   *  的 messages 逐位对齐），UI 打开会话后据此滚到那条消息。仅正文命中时有。 */
+  messageIndex?: number;
   snippet?: string;
-  /** snippet 里命中词起点的下标（小写化前），UI 高亮用。 */
+  /** snippet 里命中词起点的下标（相对 snippet 本身），UI 高亮用。 */
   snippetIndex?: number;
-  /** 命中词的字符长度（= query 去空格后的长度），与 snippetIndex 配合定位高亮区间。 */
+  /** 命中词在 snippet 里的字符长度，与 snippetIndex 配合定位高亮区间。 */
   matchLength?: number;
 }
 
@@ -412,7 +415,7 @@ export type ServerMessage =
   /**
    * `session_search` 的响应（issue #101）。requestId 与请求原样对应；`hits` 已按
    * 相关性排好序（标题命中在前，同权重按 updatedAt 倒序），每条带可选摘录。
-   * 出错走通用 `error`（带本请求的 sessionId=null），不回专用错误帧。
+   * 出错回专用的 `session_search_error`（不借用对话域的通用 `error` 帧）。
    */
   | {
       type: 'session_search_result';

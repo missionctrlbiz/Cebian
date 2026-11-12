@@ -60,6 +60,14 @@ export function useStickToBottom() {
     viewport.scrollTop = viewport.scrollHeight;
   }, []);
 
+  // 停止跟随底部：调用方要把视口滚到别处（如历史搜索跳到某条消息）时先调它，
+  // 免得随后的内容尺寸变化又被 ResizeObserver 拽回底部。
+  const unpin = useCallback(() => {
+    if (!stickRef.current) return;
+    stickRef.current = false;
+    setIsAtBottom(false);
+  }, []);
+
   useEffect(() => {
     const root = scrollRef.current;
     const viewport = getViewport(root);
@@ -131,5 +139,5 @@ export function useStickToBottom() {
     };
   }, []);
 
-  return { scrollRef, isAtBottom, scrollToBottom };
+  return { scrollRef, isAtBottom, scrollToBottom, unpin };
 }

@@ -1,66 +1,75 @@
 // 会话关键词搜索的响应式包装（issue #101）：HistoryPanel 的搜索框用它。
 //
 // 每次按键 debounce 250ms 后发一次 `session_search`；后台按 requestId 回包，
-// 这里只收「最后一次在途」的结果，更早的请求落空就丢弃（stale guard）。
-// 出错（端口断 / 后台异常）置 error，输入框不变，用户重敲即重发。
+// 这里只收「最后一次」请求的结果，更早的回包按世代号丢弃（stale guard）。
+// `searching` 从按键那一刻起就为 true（覆盖 debounce + 在途），UI 据此显示
+// 「搜索中」而不是闪一下「无结果」。出错置 error，用户重敲即重发。
+// 面板关闭时清空查询，下次打开回到默认列表。
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sessionSearchChannel } from '@/lib/agent/session-search-channel';
-import type { SessionSearchHit, SessionSearchScope } from '@/lib/ipc/protocol';
+import type { SessionSearchHit } from '@/lib/ipc/protocol';
 
 const DEBOUNCE_MS = 250;
 
-export function useSessionSearch(enabled: boolean) {
+export function useSessionSearch(open: boolean) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SessionSearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 世代号：每次新请求自增，回包前比对，过期结果直接丢。
+  // 世代号：每次按键 / 清空都自增，回包时比对，过期结果直接丢。
   const seq = useRef(0);
   const timer = useRef<number>(0);
 
-  // 输入框是 HistoryPanel 本地状态，这里只暴露 query + 结果 + 触发；
-  // debounce 在这里跑，面板只管把 query 传进来。
-  const runSearch = useCallback((q: string, scope?: SessionSearchScope) => {
-    const trimmed = q.trim();
-    if (!trimmed) {
-      setHits([]);
-      setSearching(false);
-      setError(null);
-      return;
-    }
-    setSearching(true);
-    setError(null);
-    const mySeq = ++seq.current;
+  const runSearch = useCallback((q: string, mySeq: number) => {
     sessionSearchChannel
-      .search(trimmed, scope)
+      .search(q)
       .then(({ hits: h }) => {
         if (seq.current !== mySeq) return;
         setHits(h);
+        setError(null);
         setSearching(false);
       })
       .catch((err: Error) => {
         if (seq.current !== mySeq) return;
+        setHits([]);
         setError(err.message);
         setSearching(false);
       });
   }, []);
 
-  /** 面板的输入框 onChange：只存 query + debounce 触发。 */
+  const clear = useCallback(() => {
+    seq.current++;
+    window.clearTimeout(timer.current);
+    setQuery('');
+    setHits([]);
+    setSearching(false);
+    setError(null);
+  }, []);
+
+  /** 输入框 onChange：存 query，立刻进入「搜索中」，debounce 后真正发请求。 */
   const onQueryChange = useCallback(
-    (q: string, scope?: SessionSearchScope) => {
-      setQuery(q);
+    (q: string) => {
+      const trimmed = q.trim();
+      const mySeq = ++seq.current;
       window.clearTimeout(timer.current);
-      if (!q.trim()) {
+      setQuery(q);
+      if (!trimmed) {
         setHits([]);
         setSearching(false);
         setError(null);
         return;
       }
-      timer.current = window.setTimeout(() => runSearch(q, scope), DEBOUNCE_MS);
+      setSearching(true);
+      setError(null);
+      timer.current = window.setTimeout(() => runSearch(trimmed, mySeq), DEBOUNCE_MS);
     },
     [runSearch],
   );
+
+  useEffect(() => {
+    if (!open) clear();
+  }, [open, clear]);
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -69,15 +78,9 @@ export function useSessionSearch(enabled: boolean) {
     hits,
     searching,
     error,
-    /** 是否有活跃搜索（query 非空且未出错）——驱动「显示结果列表」而非「默认分组列表」。 */
-    active: query.trim().length > 0 && !error,
+    /** query 非空 = 显示搜索结果区（含搜索中 / 出错 / 无结果状态）而非默认分组列表。 */
+    active: query.trim().length > 0,
     onQueryChange,
-    clear: () => {
-      setQuery('');
-      setHits([]);
-      setSearching(false);
-      setError(null);
-      window.clearTimeout(timer.current);
-    },
+    clear,
   };
 }

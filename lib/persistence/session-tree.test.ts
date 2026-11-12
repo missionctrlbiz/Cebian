@@ -206,4 +206,39 @@ describe('DexieSessionRepo · durability', () => {
     db.close();
     await db.delete();
   });
+
+  it('readMainBranch：只读重放 main 分支，坏尾不删除、不占 storage 缓存', async () => {
+    const db = createDb(dbName);
+    const repo = new DexieSessionRepo(db);
+    const session = await repo.create({ id: 'read-only' });
+    const rootId = await session.appendMessage(userMessage('根'));
+    const leafId = await session.appendMessage(userMessage('叶'));
+    await session.createLane('alt', rootId);
+    await db.sessionMutations.add({
+      sessionId: 'read-only',
+      seq: 99,
+      mutation: {
+        kind: 'entry',
+        lane: 'main',
+        entry: {
+          type: 'message',
+          id: 'orphan',
+          seq: 99,
+          parentId: leafId,
+          timestamp: Date.now(),
+          message: userMessage('孤儿'),
+        },
+      },
+    });
+
+    // 用另一个 repo 读，避免命中 create 留下的缓存实例
+    const reader = new DexieSessionRepo(db);
+    const entries = await reader.readMainBranch('read-only');
+    expect(entries.map((e) => e.id)).toEqual([rootId, leafId]);
+    // 坏行仍在盘上（只读路径不截断）
+    expect(await db.sessionMutations.where('sessionId').equals('read-only').count()).toBe(4);
+    expect(await reader.readMainBranch('missing')).toEqual([]);
+    db.close();
+    await db.delete();
+  });
 });
