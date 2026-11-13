@@ -6,28 +6,32 @@ import {
 } from './quote-format';
 
 describe('quoteBlocks', () => {
-  it('renders pieces as quote blocks, merged by source, attributed', () => {
+  it('renders pieces as plain context blocks (no markdown), merged by source', () => {
     const blocks = quoteBlocks([
       { text: 'a line\n\nb', attribution: 'Assistant:' },
       { text: 'you said', attribution: 'You:' },
     ]);
-    expect(blocks).toBe('> **Assistant:**\n> a line\n>\n> b\n\n> **You:**\n> you said');
+    expect(blocks).toBe('From Assistant:\na line\n\nb\n\nFrom You:\nyou said');
   });
 
   it('returns empty string when all pieces are blank', () => {
     expect(quoteBlocks([{ text: '   ' }])).toBe('');
   });
+
+  it('omits the "From" line when there is no attribution', () => {
+    expect(quoteBlocks([{ text: 'raw' }])).toBe('raw');
+  });
 });
 
 describe('composeOutgoingMessage', () => {
-  it('puts quote blocks first, typed text after, separated by a blank line', () => {
+  it('puts the quoted context first, typed text after, separated by a blank line', () => {
     const out = composeOutgoingMessage('explain more', [{ text: 'the key part', attribution: 'Assistant:' }]);
-    expect(out).toBe('> **Assistant:**\n> the key part\n\nexplain more');
+    expect(out).toBe('From Assistant:\nthe key part\n\nexplain more');
   });
 
   it('uses the quote alone when nothing was typed', () => {
     const out = composeOutgoingMessage('   ', [{ text: 'x' }]);
-    expect(out).toBe('> x');
+    expect(out).toBe('x');
   });
 
   it('uses typed text alone when there is no quote', () => {

@@ -58,7 +58,11 @@ function appendQuotePiecesToDraft(draft: string, pieces: readonly QuotePiece[]):
   return merged.reduce((acc, piece) => appendQuoteToDraft(acc, piece.text, piece.attribution), draft);
 }
 
-/** 把引用件合并（相邻同源合并）后渲染成引注块文本，不带任何草稿内容。 */
+/**
+ * 把引用件合并（相邻同源合并）后渲染成「发给模型的上下文」文本。
+ * 刻意用**朴素文本**而非 markdown：模型读到 `> **` 这类装饰会当成内容噪声，
+ * 出处行写成 `From <角色>:`（角色名保持本地化），正文原样、不加引注前缀。
+ */
 function quoteBlocks(pieces: readonly QuotePiece[]): string {
   const merged: QuotePiece[] = [];
   for (const piece of pieces) {
@@ -74,10 +78,9 @@ function quoteBlocks(pieces: readonly QuotePiece[]): string {
   for (const piece of merged) {
     const body = normalizeQuoteText(piece.text);
     if (!body) continue;
-    const lines = body.split('\n').map((line) => (line ? `> ${line}` : '>'));
     const label = piece.attribution?.trim();
-    if (label) lines.unshift(`> **${label}**`);
-    blocks.push(lines.join('\n'));
+    // 出处行用 "From <label>"（label 本身已含冒号，如 "Assistant:"）；无出处则裸正文。
+    blocks.push(label ? `From ${label}\n${body}` : body);
   }
   return blocks.join('\n\n');
 }
