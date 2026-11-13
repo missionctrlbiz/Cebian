@@ -36,9 +36,13 @@ import { useMobileEmulation } from '@/hooks/useMobileEmulation';
 import { useChatAppearance } from '@/hooks/useChatAppearance';
 import { downloadFile, formatCompactCount, isApplePlatform } from '@/lib/utils';
 import { recordingMetaText, recordingTitle } from '@/components/chat/recording-meta';
-import { composeOutgoingMessage, quoteChipLabel, type QuotePiece } from '@/components/chat/quote-format';
+import { quoteChipLabel, quoteKey } from '@/components/chat/quote-format';
+import { composeQuotedRequest, type QuotedContext } from '@/lib/agent/quoted-context';
 import { t } from '@/lib/i18n';
 import type { PromptDispatchResult, QueueTakeResult } from '@/hooks/useBackgroundAgent';
+
+/** 输入框上方最多同时钉几段划词引用（issue #103）；芯片一行放不下时横向滚动。 */
+const MAX_PINNED_QUOTES = 5;
 
 interface ChatInputProps {
   onSend: (
@@ -85,8 +89,9 @@ interface ChatInputProps {
 export interface ChatInputHandle {
   fill: (text: string) => void;
   /** 划词引用（issue #103）：把按消息切好的选中文本钉成输入框上方的引用芯片（替换已有
-   *  芯片），不改草稿文本与附件；发送时由 composeOutgoingMessage 拼进载荷。 */
-  pinQuote: (pieces: readonly QuotePiece[]) => void;
+   *  芯片；可叠加多枚，同一段内容不重复），不改草稿文本与附件；发送时由
+   *  composeQuotedRequest 拼进载荷。 */
+  pinQuote: (quotes: readonly QuotedContext[]) => void;
   /** 聊天页拖放区放下的文件；`folders` 是被排除的文件夹名，只用来提示。 */
   addFiles: (files: readonly File[], folders: readonly string[]) => void;
 }
@@ -387,12 +392,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isPicking]);
 
-  // 划词引用（issue #103）：不写进输入框文本，而是钉成芯片（pendingQuote）；发送时由
-  // composeOutgoingMessage 把引注块拼进最终载荷。芯片带出处摘要 + 移除按钮，与附件同层。
-  const [pendingQuote, setPendingQuote] = useState<ReadonlyArray<QuotePiece> | null>(null);
-  const removeQuote = useCallback(() => setPendingQuote(null), []);
+  // 划词引用（issue #103）：不写进输入框文本，而是钉成芯片（pendingQuotes，每次「加入聊天」
+  // 一枚、可叠加）；发送时由 composeQuotedRequest 按顺序把引用块拼进载荷。芯片带出处摘要 +
+  // 移除按钮，与附件同层。
+  const [pendingQuotes, setPendingQuotes] = useState<ReadonlyArray<readonly QuotedContext[]>>([]);
+  // pinQuote 在渲染之外被调用（工具条回调），读 ref 拿最新列表来判重 / 判上限
+  const pendingQuotesRef = useRef(pendingQuotes);
+  pendingQuotesRef.current = pendingQuotes;
+  const removeQuote = useCallback((index: number) => {
+    setPendingQuotes((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   // 只挂了提示词或引用芯片、一个字没打也算可发——芯片里的引用本身就是这一轮的上下文。
-  const canSend = value.trim().length > 0 || slashPrompt !== null || pendingQuote !== null;
+  const canSend = value.trim().length > 0 || slashPrompt !== null || pendingQuotes.length > 0;
   // 发送 / 停止共用一个按钮位（与 Claude / Codex 一致）：运行中输入框空着是停止键，打了字
   // 就变成按设置排队 / 插话的发送键，这时停止走 Esc。
   const showStop = isAgentRunning && !canSend;
@@ -460,13 +472,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       const outgoing = getAttachments();
       // 划词引用（issue #103）：芯片里的引注块拼进最终载荷（块在前、正文在后）；
       // 输入框里的 value 只是用户自己敲的部分，引用不再直接可见于框中。
-      const composed = pendingQuote ? composeOutgoingMessage(outgoingText, pendingQuote) : text;
+      const composed = pendingQuotes.length > 0 ? composeQuotedRequest(pendingQuotes.flat(), outgoingText) : text;
       const result = await onSend(composed, outgoing.length > 0 ? outgoing : undefined, dispatchSessionId, slashPrompt ?? undefined, delivery);
       if (result.status !== 'dispatched') return;
       if (sessionIdRef.current !== dispatchSessionId) return;
 
       setValue('');
-      setPendingQuote(null);
+      setPendingQuotes([]);
       updateAttachments(() => []);
       setSlashPrompt(null);
       setShowSlash(false);
@@ -486,7 +498,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setHistoryIndex(null);
     setDraft('');
     setSlashPrompt(null);
-    setPendingQuote(null);
+    setPendingQuotes([]);
     slashPromptSeqRef.current++;
     interimSuffixRef.current = '';
     speech.stop();
@@ -687,11 +699,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   }, []);
 
   // 划词引用（issue #103）：点「Add to chat」把选中的段落钉成芯片（不写进输入框文本），
-  // 发送时由 composeOutgoingMessage 拼进最终载荷；芯片带出处摘要 + 移除按钮。
+  // 发送时由 composeQuotedRequest 拼进最终载荷；芯片带出处摘要 + 移除按钮。
   // 再次「加入聊天」会替换当前芯片（一次只钉一段引用）。
-  const pinQuote = useCallback((pieces: readonly QuotePiece[]) => {
-    if (pieces.length === 0) return;
-    setPendingQuote(pieces);
+  const pinQuote = useCallback((quotes: readonly QuotedContext[]) => {
+    if (quotes.length === 0) return;
+    const key = quoteKey(quotes);
+    const current = pendingQuotesRef.current;
+    if (current.some((q) => quoteKey(q) === key)) return;
+    if (current.length >= MAX_PINNED_QUOTES) {
+      toast.warning(t('chat.message.quoteLimit', [MAX_PINNED_QUOTES]));
+      return;
+    }
+    setPendingQuotes([...current, quotes]);
     focusCaretAtEnd();
   }, [focusCaretAtEnd]);
 
@@ -963,6 +982,37 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       )}
 
       <div className="border border-border rounded-xl bg-card focus-within:border-border/80 focus-within:ring-2 focus-within:ring-primary/10 transition-all">
+        {/* Pinned quotes (issue #103): own full-width row so chips scroll instead of overflowing the panel */}
+        {pendingQuotes.length > 0 && (
+          <div
+            role="group"
+            aria-label={t('chat.message.quoteChip')}
+            className="flex items-center gap-1 px-2.5 pt-2.5 min-w-0 overflow-x-auto scrollbar-none"
+          >
+            {pendingQuotes.map((quotes, i) => {
+              const label = quoteChipLabel(quotes);
+              return (
+                <Badge
+                  key={quoteKey(quotes)}
+                  variant="outline"
+                  className="shrink-0 max-w-48 text-[0.65rem] font-mono gap-1 h-5 rounded pl-1 pr-0.5 text-primary border-primary/25 bg-primary/5"
+                >
+                  <Quote className="size-2.5 shrink-0" />
+                  <span className="truncate" title={label}>{label}</span>
+                  <button
+                    className="shrink-0 opacity-60 hover:opacity-100 p-0.5 rounded-sm hover:bg-foreground/10 cursor-pointer"
+                    title={t('chat.message.quoteChipRemove')}
+                    aria-label={t('chat.message.quoteChipRemove')}
+                    disabled={isDispatching}
+                    onClick={() => removeQuote(i)}
+                  >
+                    <X className="size-2.5" />
+                  </button>
+                </Badge>
+              );
+            })}
+          </div>
+        )}
         {/* Top row: tools + attachments */}
         <div className="flex items-center gap-0.5 px-2.5 pt-2.5 pb-2">
           {/* Tool icons */}
@@ -1023,32 +1073,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </Button>
           )}
 
-          {pendingQuote !== null && (
-            <div
-              role="group"
-              aria-label={t('chat.message.quoteChip')}
-              className="flex items-center gap-1 px-2.5 py-1.5 border-b border-border/50"
-            >
-              <Badge
-                variant="outline"
-                className="shrink-0 text-[0.65rem] font-mono gap-1 h-5 rounded pl-1 pr-0.5 text-sky-400 border-sky-400/20 bg-sky-400/5 group"
-              >
-                <Quote className="size-2.5 shrink-0" />
-                <span className="truncate max-w-40" title={quoteChipLabel(pendingQuote)}>
-                  {quoteChipLabel(pendingQuote)}
-                </span>
-                <button
-                  className="opacity-60 hover:opacity-100 p-0.5 rounded-sm hover:bg-foreground/10 cursor-pointer"
-                  title={t('chat.message.quoteChipRemove')}
-                  aria-label={t('chat.message.quoteChipRemove')}
-                  disabled={isDispatching}
-                  onClick={removeQuote}
-                >
-                  <X className="size-2.5" />
-                </button>
-              </Badge>
-            </div>
-          )}
 
           {attachments.length > 0 && (
             <>

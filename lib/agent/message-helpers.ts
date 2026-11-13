@@ -11,6 +11,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { unescapeXml } from '@/lib/utils';
 import { SLASH_PROMPT_ONLY_REQUEST } from '@/lib/ai-config/slash-prompt';
 import { USER_REQUEST_CLOSE, USER_REQUEST_OPEN, wrapUserRequest } from '@/lib/agent/prompt-envelope';
+import { splitQuotedRequest, type QuotedContext } from '@/lib/agent/quoted-context';
 import type { NetworkCaptureState } from '@/lib/recorder/network-types';
 
 // ─── Parsed attachment metadata for UI display ───
@@ -128,12 +129,21 @@ export function extractUserText(msg: Message): string {
   // 没有信封包裹的裸文本只剩一种来源：划词动作「在侧边栏继续」固化下来的页面文本
   //（UI 的乐观消息现在也带完整信封，见 dispatchPrompt）。那种情况整段就是用户的话。
   const match = matchUserRequest(raw);
-  const text = match ? match.text : raw.trim();
+  // 划词引用块（issue #103）不算用户敲的字：气泡单独渲染、编辑与 ↑ 历史只动后面的正文。
+  const text = splitQuotedRequest(match ? match.text : raw).text;
   // 占位句是精确匹配。用户恰好手打出这句一模一样的英文时会被当成空文本（气泡与 ↑
   // 历史里都看不到它）——概率可以忽略，且代价只是少显示一行，不值得为它把「没打字」
   // 这个信号改成一个用户敲不出来的结构标记。
   if (text === SLASH_PROMPT_ONLY_REQUEST && SLASH_PROMPT_RE.test(raw)) return '';
   return text;
+}
+
+/** 取出这一轮随消息发出的划词引用（issue #103），按出现顺序；没有则返回空数组。 */
+export function extractQuotedContext(msg: Message): QuotedContext[] {
+  if (msg.role !== 'user') return [];
+  const raw = getRawUserText(msg);
+  const match = matchUserRequest(raw);
+  return splitQuotedRequest(match ? match.text : raw).quotes;
 }
 
 /** 取出这一轮携带的斜杠提示词（名字 + 正文），没有则返回 null。

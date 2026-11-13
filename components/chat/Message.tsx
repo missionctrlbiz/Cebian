@@ -6,7 +6,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { CopyButton } from '@/components/common/CopyButton';
 import { MarkdownRenderer } from '@/components/common/MarkdownRenderer';
 import { MessageMetaRow, type MessageMetaProps } from '@/components/chat/MessageMetaRow';
-import { extractUserText, extractUserAttachments, extractSlashPrompt } from '@/lib/agent/message-helpers';
+import { extractUserText, extractUserAttachments, extractSlashPrompt, extractQuotedContext } from '@/lib/agent/message-helpers';
+import { composeQuotedRequest, type QuotedContext } from '@/lib/agent/quoted-context';
 import { showDialog } from '@/lib/ui/dialog';
 import { RECORDING_MIME } from '@/lib/agent/attachments';
 import { t } from '@/lib/i18n';
@@ -81,6 +82,24 @@ function harFileUrl(sessionId: string, harPath: string): string | null {
 }
 
 /* ─── User Message ─── */
+/**
+ * 随消息发出的一段划词引用（issue #103）：只显示引用的正文，用左侧强调线 + 浅底标出是
+ * 引用，不露出标签或「From …」出处行。长引用默认收成 4 行，点击展开 / 收起。
+ */
+function QuotedBlock({ quote }: { quote: QuotedContext }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded((v) => !v)}
+      aria-expanded={expanded}
+      className={`text-left cursor-pointer border-l-2 border-primary/70 bg-primary/5 rounded-r-md pl-3 pr-2 py-1.5 text-foreground/80 whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-4'}`}
+    >
+      {quote.text}
+    </button>
+  );
+}
+
 export function UserMessageBubble({
   msg,
   children,
@@ -101,6 +120,7 @@ export function UserMessageBubble({
   const text = msg ? extractUserText(msg) : null;
   const slashPrompt = useMemo(() => msg ? extractSlashPrompt(msg) : null, [msg]);
   const attachments = useMemo(() => msg ? extractUserAttachments(msg) : null, [msg]);
+  const quotes = useMemo(() => msg ? extractQuotedContext(msg) : [], [msg]);
   const hasAttachments = attachments && (attachments.images.length > 0 || attachments.elements.length > 0 || attachments.files.length > 0 || attachments.recordings.length > 0);
 
   const [editing, setEditing] = useState(false);
@@ -120,7 +140,8 @@ export function UserMessageBubble({
     const next = draft.trim();
     setEditing(false);
     // 空文案或没改不发——避免误触把消息清空 / 空跑一轮
-    if (next && next !== text) onEdit?.(next);
+    // 编辑只改用户自己敲的话；随消息发出的划词引用原样保留（issue #103）
+    if (next && next !== text) onEdit?.(quotes.length > 0 ? composeQuotedRequest(quotes, next) : next);
   };
 
   if (editing) {
@@ -174,10 +195,11 @@ export function UserMessageBubble({
 
   return (
     <div className="self-end max-w-[95%] group/user">
-      {hasBubble && (
-        // data-quote-source：标记可被划词引用（issue #103）的消息正文及其角色，见 QuoteToolbar
-        <div data-quote-source="user" className="bg-card border border-border px-4 py-3 rounded-2xl chat-text-body chat-font leading-relaxed w-fit ml-auto whitespace-pre-wrap break-all">
-          {bubble}
+      {(hasBubble || quotes.length > 0) && (
+        <div className="bg-card border border-border px-4 py-3 rounded-2xl chat-text-body chat-font leading-relaxed w-fit ml-auto whitespace-pre-wrap break-all flex flex-col gap-2">
+          {quotes.map((quote, i) => <QuotedBlock key={i} quote={quote} />)}
+          {/* data-quote-source marks the user's own text as quotable (issue #103), see QuoteToolbar */}
+          {hasBubble && <div data-quote-source="user">{bubble}</div>}
         </div>
       )}
 

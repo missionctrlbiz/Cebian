@@ -816,10 +816,9 @@ chat:
     # accessible name and the remove-button tooltip. quoteActions labels the floating toolbar.
     quoteChip: "Quoted passage"
     quoteChipRemove: "Remove quoted passage"
+    # $1 = max number of pinned quotes
+    quoteLimit: "Up to $1 quoted passages"
     quoteActions: "Selection actions"
-    # Source label for quoted text (chip summary and the "From …" line sent to the model).
-    quoteFromUser: "You:"
-    quoteFromAssistant: "Assistant:"
   contextUsage:
     # Accessible name / tooltip on the ring next to the composer. $1 = percent used.
     label: "Context used: $1%"

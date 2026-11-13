@@ -20,9 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### 新增 / Added
 
-- 在对话里选中消息正文时浮出「复制 / 加入聊天」工具条：点「加入聊天」把选中段落钉成输入框上方的一枚芯片（不写进输入框文本），芯片带出处摘要与移除按钮；发送时引注块（带「你 / 助手」出处标记，跨消息只取正文）随正文一起发出，模型据此精确针对那段内容作答；点「复制」直接复制选区 ([#103](https://github.com/maotoumao/Cebian/issues/103))
+- 在对话里选中消息正文时浮出「复制 / 加入聊天」工具条：「复制」只复制选中的文字；「加入聊天」把选区钉成输入框上方的引用芯片（不写进输入框文本），最多叠加 5 枚、可逐个移除。发送后引用会以引用样式显示在你的消息气泡里，并随消息一起交给模型，让它精确针对那段内容作答；跨多条消息选中时只取消息正文、不带界面文字 ([#103](https://github.com/maotoumao/Cebian/issues/103))
 
-- Selecting message text in a conversation shows a floating "Copy / Add to chat" toolbar: "Add to chat" pins the selection as a chip above the input box (it is not typed into the box); the chip shows a source summary and a remove button. On send, the quoted block (labeled "You" / "Assistant", message text only) is attached to your message so the model can target that exact passage; "Copy" copies the selection to the clipboard ([#103](https://github.com/maotoumao/Cebian/issues/103))
+- Selecting message text in a conversation shows a floating "Copy / Add to chat" toolbar: "Copy" copies just the selected text; "Add to chat" pins the selection as a quote chip above the input box (it is not typed into the box). Up to 5 quotes can be stacked and removed individually. After sending, quotes appear as styled quote blocks in your message bubble and go to the model with your message, so it can address that exact passage; selections across several messages pick up only message text, not surrounding UI ([#103](https://github.com/maotoumao/Cebian/issues/103))
 
 ## 1.8.3 - 2026-11-09
 

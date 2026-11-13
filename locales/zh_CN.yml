@@ -804,10 +804,9 @@ chat:
     quoteAddToChat: "加入聊天"
     quoteChip: "引用的段落"
     quoteChipRemove: "移除引用的段落"
+    # $1 = 最多可钉的引用段数
+    quoteLimit: "最多引用 $1 段"
     quoteActions: "选区操作"
-    # 引用的出处标签（芯片摘要，以及发给模型的「From …」出处行）
-    quoteFromUser: "你："
-    quoteFromAssistant: "助手："
   contextUsage:
     # 输入框旁进度环的无障碍名称 / 悬停提示。$1 = 已用百分比
     label: "上下文已用 $1%"

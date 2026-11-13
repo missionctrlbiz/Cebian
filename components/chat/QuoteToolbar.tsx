@@ -5,11 +5,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Quote, Copy } from 'lucide-react';
 import { copyText } from '@/lib/ui/clipboard';
-import { quoteCopyText, type QuotePiece } from '@/components/chat/quote-format';
+import { quoteCopyText } from '@/components/chat/quote-format';
+import type { QuoteSource, QuotedContext } from '@/lib/agent/quoted-context';
 import { Button } from '@/components/ui/button';
 import { t } from '@/lib/i18n';
-
-type QuoteSource = 'user' | 'assistant';
 
 /** 选区锚点：首末行矩形（相对 wrapper 的坐标）。引用的文本到点击时才从选区里取。 */
 interface Anchor {
@@ -27,8 +26,8 @@ interface QuoteToolbarProps {
   root: HTMLElement | null;
   /** 工具条的定位参考框（不随滚动位移的外层容器，需 position: relative）。 */
   wrapper: HTMLElement | null;
-  /** 点「引用」：传出按消息切好的选中文本，每截带本地化的出处行（如「Assistant:」）。 */
-  onQuote: (pieces: QuotePiece[]) => void;
+  /** 点「加入聊天」：传出按消息切好的选中文本，每段带出处角色。 */
+  onQuote: (quotes: QuotedContext[]) => void;
 }
 
 const SOURCE_SELECTOR = '[data-quote-source]';
@@ -48,12 +47,6 @@ function readSource(el: Element): QuoteSource | null {
   return value === 'user' || value === 'assistant' ? value : null;
 }
 
-function attributionOf(source: QuoteSource | null): string | undefined {
-  if (source === 'user') return t('chat.message.quoteFromUser');
-  if (source === 'assistant') return t('chat.message.quoteFromAssistant');
-  return undefined;
-}
-
 /** 与选区相交的消息正文（按文档顺序）。 */
 function intersectingSources(root: HTMLElement, range: Range): Element[] {
   return Array.from(root.querySelectorAll(SOURCE_SELECTOR)).filter((el) => range.intersectsNode(el));
@@ -65,11 +58,11 @@ function intersectingSources(root: HTMLElement, range: Range): Element[] {
  * 的文本（段落之间带换行；Range.toString() 只会把 textContent 硬拼在一起）。
  * 取完清掉选区：焦点随即移到输入框，残留的选区会让 selectionchange 把工具条重新弹出来。
  */
-function takeQuotePieces(root: HTMLElement): QuotePiece[] {
+function takeQuotePieces(root: HTMLElement): QuotedContext[] {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return [];
   const range = selection.getRangeAt(0);
-  const pieces: QuotePiece[] = [];
+  const pieces: QuotedContext[] = [];
   for (const el of intersectingSources(root, range)) {
     const piece = range.cloneRange();
     if (!el.contains(range.startContainer)) piece.setStart(el, 0);
@@ -77,7 +70,8 @@ function takeQuotePieces(root: HTMLElement): QuotePiece[] {
     selection.removeAllRanges();
     selection.addRange(piece);
     const text = selection.toString();
-    if (text.trim()) pieces.push({ text, attribution: attributionOf(readSource(el)) });
+    const source = readSource(el);
+    if (text.trim()) pieces.push(source ? { text, source } : { text });
   }
   selection.removeAllRanges();
   return pieces;
