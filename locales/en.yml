@@ -813,11 +813,11 @@ chat:
     quoteCopy: "Copy"
     quoteAddToChat: "Add to chat"
     # Composer chip for a pinned quote (label is computed in JS); these are the
-    # accessible name and the remove-button tooltip.
+    # accessible name and the remove-button tooltip. quoteActions labels the floating toolbar.
     quoteChip: "Quoted passage"
     quoteChipRemove: "Remove quoted passage"
-    quoteCopied: "Copied to clipboard"
-    # Attribution line prefixed to a quote taken from a single message (rendered bold).
+    quoteActions: "Selection actions"
+    # Source label for quoted text (chip summary and the "From …" line sent to the model).
     quoteFromUser: "You:"
     quoteFromAssistant: "Assistant:"
   contextUsage:

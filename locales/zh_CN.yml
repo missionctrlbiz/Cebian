@@ -804,8 +804,8 @@ chat:
     quoteAddToChat: "加入聊天"
     quoteChip: "引用的段落"
     quoteChipRemove: "移除引用的段落"
-    quoteCopied: "已复制到剪贴板"
-    # 引用出自单条消息时，引注块开头的出处行（加粗显示）
+    quoteActions: "选区操作"
+    # 引用的出处标签（芯片摘要，以及发给模型的「From …」出处行）
     quoteFromUser: "你："
     quoteFromAssistant: "助手："
   contextUsage:

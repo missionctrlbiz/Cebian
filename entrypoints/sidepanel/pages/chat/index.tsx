@@ -679,7 +679,7 @@ export function ChatPage({ onOpenSettings, onTitleChange }: { onOpenSettings?: (
           key={isNewChat ? 'new' : routeSessionId}
           root={quoteRoot}
           wrapper={quoteWrapper}
-          onQuote={(pieces) => inputRef.current?.appendQuote(pieces)}
+          onQuote={(pieces) => inputRef.current?.pinQuote(pieces)}
         />
       </div>
 

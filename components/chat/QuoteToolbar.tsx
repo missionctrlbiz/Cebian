@@ -1,13 +1,13 @@
-// 划词引用工具条（issue #103）：在对话区里选中消息正文时浮出「引用」按钮，把选中文本
-// 以引注块追加进输入框。内容脚本里的 SelectionToolbar 管的是网页文本，这里只处理侧边栏
-// 自己的消息区。可引用的正文由 Message.tsx 用 data-quote-source 标出（值为角色）。
+// 划词引用工具条（issue #103）：在对话区里选中消息正文时浮出「复制 / 加入聊天」，
+// 复制只取选中的正文；加入聊天把选区钉成输入框上方的引用芯片。内容脚本里的
+// SelectionToolbar 管的是网页文本，这里只处理侧边栏自己的消息区。可引用的正文由
+// Message.tsx 用 data-quote-source 标出（值为角色）。
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Quote, Copy } from 'lucide-react';
 import { copyText } from '@/lib/ui/clipboard';
-import { quoteBlocks } from '@/components/chat/quote-format';
+import { quoteCopyText, type QuotePiece } from '@/components/chat/quote-format';
 import { Button } from '@/components/ui/button';
 import { t } from '@/lib/i18n';
-import type { QuotePiece } from '@/components/chat/quote-format';
 
 type QuoteSource = 'user' | 'assistant';
 
@@ -218,17 +218,17 @@ function QuoteToolbar({ root, wrapper, onQuote }: QuoteToolbarProps) {
     if (!root) return;
     const pieces = takeQuotePieces(root);
     setAnchor(null);
-    const text = quoteBlocks(pieces).trim();
+    // 剪贴板里只放用户看到的正文，不带发给模型用的出处行；成功 / 失败提示由 copyText 统一给
+    const text = quoteCopyText(pieces);
     if (!text) return;
     await copyText(text);
   };
-
 
   return (
     <div
       ref={barRef}
       role="group"
-      aria-label={t('chat.message.quoteChip')}
+      aria-label={t('chat.message.quoteActions')}
       className="absolute z-30 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 text-popover-foreground shadow-md"
       style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden' }}
       // 按下工具条不清空消息区里的选区

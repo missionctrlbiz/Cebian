@@ -84,10 +84,9 @@ interface ChatInputProps {
  *  同时仍由 ChatInput 持有 value 状态。 */
 export interface ChatInputHandle {
   fill: (text: string) => void;
-  /** 划词引用（issue #103）：把按消息切好的选中文本以 markdown 引注块形式追加进
-   *  输入框，每块首行加粗标出出处（如「Assistant:」）；已有内容时空一行隔开，不覆盖
-   *  草稿和附件。与 `fill` 的整框替换相对——引用是往草稿里添上下文，不是重起草。 */
-  appendQuote: (pieces: readonly QuotePiece[]) => void;
+  /** 划词引用（issue #103）：把按消息切好的选中文本钉成输入框上方的引用芯片（替换已有
+   *  芯片），不改草稿文本与附件；发送时由 composeOutgoingMessage 拼进载荷。 */
+  pinQuote: (pieces: readonly QuotePiece[]) => void;
   /** 聊天页拖放区放下的文件；`folders` 是被排除的文件夹名，只用来提示。 */
   addFiles: (files: readonly File[], folders: readonly string[]) => void;
 }
@@ -689,7 +688,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   // 划词引用（issue #103）：点「Add to chat」把选中的段落钉成芯片（不写进输入框文本），
   // 发送时由 composeOutgoingMessage 拼进最终载荷；芯片带出处摘要 + 移除按钮。
-  const appendQuote = useCallback((pieces: readonly QuotePiece[]) => {
+  // 再次「加入聊天」会替换当前芯片（一次只钉一段引用）。
+  const pinQuote = useCallback((pieces: readonly QuotePiece[]) => {
     if (pieces.length === 0) return;
     setPendingQuote(pieces);
     focusCaretAtEnd();
@@ -703,8 +703,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     // 等 value 提交后再聚焦并把光标移到末尾，方便用户接着改。
     focusCaretAtEnd();
   }, [focusCaretAtEnd]);
-
-
 
   // Scan prompts when slash menu opens
   useEffect(() => {
@@ -906,7 +904,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   };
 
   // 不传依赖：addDroppedFiles 每次渲染都会换新，句柄跟着重建拿到最新闭包，重建一个小对象的开销可以忽略
-  useImperativeHandle(ref, () => ({ fill, appendQuote, addFiles: addDroppedFiles }));
+  useImperativeHandle(ref, () => ({ fill, pinQuote, addFiles: addDroppedFiles }));
 
   return (
     <footer className="px-4 py-4 border-t border-border bg-background relative" onKeyDown={handleFooterKeyDown}>
@@ -1026,7 +1024,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           )}
 
           {pendingQuote !== null && (
-            <div className="flex items-center gap-1 px-2.5 py-1.5 border-b border-border/50">
+            <div
+              role="group"
+              aria-label={t('chat.message.quoteChip')}
+              className="flex items-center gap-1 px-2.5 py-1.5 border-b border-border/50"
+            >
               <Badge
                 variant="outline"
                 className="shrink-0 text-[0.65rem] font-mono gap-1 h-5 rounded pl-1 pr-0.5 text-sky-400 border-sky-400/20 bg-sky-400/5 group"

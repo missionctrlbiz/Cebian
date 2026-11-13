@@ -1,64 +1,83 @@
 import { describe, expect, it } from 'vitest';
-import { appendQuoteToDraft, appendQuotePiecesToDraft } from '@/components/chat/quote-format';
+import {
+  composeOutgoingMessage,
+  quoteBlocks,
+  quoteChipLabel,
+  quoteCopyText,
+} from '@/components/chat/quote-format';
 
-describe('appendQuoteToDraft', () => {
-  it('quotes each line into an empty draft and leaves a blank line to type below', () => {
-    expect(appendQuoteToDraft('', 'first\nsecond')).toBe('> first\n> second\n\n');
-  });
-
-  it('normalizes CRLF and lone CR line endings', () => {
-    expect(appendQuoteToDraft('', 'a\r\nb\rc')).toBe('> a\n> b\n> c\n\n');
-  });
-
-  it('keeps single blank lines as bare ">" and collapses longer runs', () => {
-    expect(appendQuoteToDraft('', 'a\n\nb\n\n\n\nc')).toBe('> a\n>\n> b\n>\n> c\n\n');
-  });
-
-  it('trims trailing whitespace and leading / trailing blank lines', () => {
-    expect(appendQuoteToDraft('', '\n\n  indented  \nnext\t\n \n\n')).toBe('>   indented\n> next\n\n');
-  });
-
-  it('separates the quote from existing draft text with one blank line', () => {
-    expect(appendQuoteToDraft('Explain this:', 'x')).toBe('Explain this:\n\n> x\n\n');
-    expect(appendQuoteToDraft('Explain this:\n\n\n', 'x')).toBe('Explain this:\n\n> x\n\n');
-  });
-
-  it('stacks consecutive quotes without piling up blank lines', () => {
-    const once = appendQuoteToDraft('', 'one');
-    expect(appendQuoteToDraft(once, 'two')).toBe('> one\n\n> two\n\n');
-  });
-
-  it('treats a whitespace-only draft as empty', () => {
-    expect(appendQuoteToDraft('  \n ', 'x')).toBe('> x\n\n');
-  });
-
-  it('prefixes a bold attribution line when given', () => {
-    expect(appendQuoteToDraft('', 'hello', 'Assistant:')).toBe('> **Assistant:**\n> hello\n\n');
-    expect(appendQuoteToDraft('', 'hello', '  ')).toBe('> hello\n\n');
-  });
-
-  it('returns the draft unchanged when the selection is blank', () => {
-    expect(appendQuoteToDraft('keep', ' \r\n\t ')).toBe('keep');
-  });
-});
-
-describe('appendQuotePiecesToDraft', () => {
-  it('labels each message piece with its own attribution', () => {
-    expect(appendQuotePiecesToDraft('', [
-      { text: 'question', attribution: 'You:' },
-      { text: 'answer', attribution: 'Assistant:' },
-    ])).toBe('> **You:**\n> question\n\n> **Assistant:**\n> answer\n\n');
+describe('quoteBlocks', () => {
+  it('renders pieces as plain context blocks (no markdown), labeled by source', () => {
+    expect(quoteBlocks([
+      { text: 'a line\n\nb', attribution: 'Assistant:' },
+      { text: 'you said', attribution: 'You:' },
+    ])).toBe('From Assistant:\na line\n\nb\n\nFrom You:\nyou said');
   });
 
   it('merges adjacent pieces from the same source and skips blank ones', () => {
-    expect(appendQuotePiecesToDraft('Draft', [
+    expect(quoteBlocks([
       { text: 'part one', attribution: 'Assistant:' },
       { text: '  \n', attribution: 'You:' },
       { text: 'part two\r\n', attribution: 'Assistant:' },
-    ])).toBe('Draft\n\n> **Assistant:**\n> part one\n>\n> part two\n\n');
+    ])).toBe('From Assistant:\npart one\n\npart two');
   });
 
-  it('returns the draft unchanged when every piece is blank', () => {
-    expect(appendQuotePiecesToDraft('keep', [{ text: ' ' }])).toBe('keep');
+  it('normalizes line endings, trailing whitespace and blank-line runs', () => {
+    expect(quoteBlocks([{ text: '\n\n  indented  \r\nnext\t\r\n\n\n\nlast\n\n' }]))
+      .toBe('  indented\nnext\n\nlast');
+  });
+
+  it('omits the "From" line when there is no attribution', () => {
+    expect(quoteBlocks([{ text: 'raw' }])).toBe('raw');
+    expect(quoteBlocks([{ text: 'raw', attribution: '  ' }])).toBe('raw');
+  });
+
+  it('returns an empty string when all pieces are blank', () => {
+    expect(quoteBlocks([{ text: '   ' }])).toBe('');
+    expect(quoteBlocks([])).toBe('');
+  });
+
+  it('does not mutate its input', () => {
+    const pieces = [{ text: 'a', attribution: 'You:' }, { text: 'b', attribution: 'You:' }];
+    quoteBlocks(pieces);
+    expect(pieces).toEqual([{ text: 'a', attribution: 'You:' }, { text: 'b', attribution: 'You:' }]);
+  });
+});
+
+describe('quoteCopyText', () => {
+  it('copies only the selected text, without attribution lines', () => {
+    expect(quoteCopyText([
+      { text: 'question\r\n', attribution: 'You:' },
+      { text: 'answer', attribution: 'Assistant:' },
+    ])).toBe('question\n\nanswer');
+  });
+
+  it('returns an empty string for a blank selection', () => {
+    expect(quoteCopyText([{ text: ' \n ' }])).toBe('');
+  });
+});
+
+describe('composeOutgoingMessage', () => {
+  it('puts the quoted context first, typed text after, separated by a blank line', () => {
+    expect(composeOutgoingMessage('explain more', [{ text: 'the key part', attribution: 'Assistant:' }]))
+      .toBe('From Assistant:\nthe key part\n\nexplain more');
+  });
+
+  it('uses the quote alone when nothing was typed', () => {
+    expect(composeOutgoingMessage('   ', [{ text: 'x' }])).toBe('x');
+  });
+
+  it('uses typed text alone when there is no quote', () => {
+    expect(composeOutgoingMessage('just text', [])).toBe('just text');
+  });
+});
+
+describe('quoteChipLabel', () => {
+  it('labels the first non-blank piece with attribution and truncates long lines', () => {
+    expect(quoteChipLabel([{ text: 'A'.repeat(60), attribution: 'Assistant:' }])).toBe(
+      'Assistant: ' + 'A'.repeat(40) + '…',
+    );
+    expect(quoteChipLabel([{ text: ' ' }, { text: '\n  short  \nmore' }])).toBe('short');
+    expect(quoteChipLabel([])).toBe('');
   });
 });
